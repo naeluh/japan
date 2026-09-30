@@ -12,18 +12,18 @@ export function same(a, b) {
   const x = Buffer.from(String(a)), y = Buffer.from(String(b));
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
-// EDIT_KEY is required for changes. VIEW_KEY (optional) makes the plan private to people with a link.
+// One mode: whoever can see the plan can edit it. With no EDIT_KEY that's anyone at the address;
+// setting EDIT_KEY locks the whole site to people who have the link (?k=EDIT_KEY).
+export const locked = () => !!process.env.EDIT_KEY;
 export function access(req) {
-  const key = req.headers['x-trip-key'] || '';
   const edit = process.env.EDIT_KEY || '';
-  const view = process.env.VIEW_KEY || '';
-  const canEdit = !!edit && !!key && same(key, edit);
-  const canView = canEdit || !view || (!!key && same(key, view));
-  return { canEdit, canView };
+  const key = req.headers['x-trip-key'] || '';
+  const ok = !edit || (!!key && same(key, edit));
+  return { canEdit: ok, canView: ok };
 }
 // Read-only token for calendar subscriptions: calendar apps can't send headers, and a raw key in a shared URL would leak edit rights.
 export function calToken() {
-  const secret = process.env.EDIT_KEY || process.env.VIEW_KEY || '';
+  const secret = process.env.EDIT_KEY || '';
   return secret ? crypto.createHmac('sha256', secret).update('calendar').digest('hex').slice(0, 24) : '';
 }
 export function query(req) {

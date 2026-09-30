@@ -33,7 +33,7 @@ export default async function handler(req, res) {
       return send(res, 200, ch);
     }
     if (req.method === 'POST') {
-      if (!canEdit) return fail(res, 403, 'invalid_argument', 'This link is view-only.');
+      if (!canEdit) return fail(res, 403, 'not_granted', 'This link needs a valid trip key.');
       const { op, path, data } = await body(req);
       if (!validPath(path)) return fail(res, 400, 'invalid_argument', 'Bad document path.');
       if (op === 'delete') { const rev = await writeDoc(path, null); return send(res, 200, { rev }); }

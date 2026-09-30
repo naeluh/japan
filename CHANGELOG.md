@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.0 (2026-09-30)
+
+- One mode for everyone: whoever can see the plan can edit it, and every change saves to the database for everyone. The view-only key (`VIEW_KEY`) is gone.
+- `EDIT_KEY` is now an optional lock: unset (the default now), anyone who opens the site can view and edit; set, the whole site needs the link with `?k=`.
+- Share copies the plain site address when the site is open; the sale-date calendar needs no token when open.
+
 ## 2.1.1 (2026-09-30)
 
 - Checkboxes and priority dots on the view-only link no longer do nothing: a tap explains that this browser has the view-only link and offers a box to paste the edit link.

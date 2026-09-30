@@ -38,4 +38,6 @@ PORT=3917 EDIT_KEY=devkey CRON_SECRET=cronsecret LOCAL_DB_FILE=/tmp/trip-dev.jso
 ## Deploy
 - Production deploys from `main` (Git integration, project `naeluhs-projects/japan`). Env changes need a new deployment.
 - Vercel env: `DATABASE_URL` is the Neon main branch for Production and the dev branch for Preview.
-- After deploying: anonymous `curl /api/config` (canView false when VIEW_KEY is set), with the edit key (canEdit true, storage `postgres`), `vercel crons ls` or the project settings for the cron, and one `Bearer $CRON_SECRET` run of `/api/watch`.
+- Access is one mode (the user's choice): no `EDIT_KEY` = anyone can view and edit; `EDIT_KEY` set = everything needs `?k=`. There is no view-only key any more; don't reintroduce one.
+- After deploying: anonymous `curl /api/config` (canEdit true and locked false while open; storage `postgres`), `vercel crons ls` or the project settings for the cron, and one `Bearer $CRON_SECRET` run of `/api/watch`.
+- Testing on the live site writes to the real plan: use a throwaway doc (`items/zz-smoke`, then delete it) and remove any log entries a test creates.

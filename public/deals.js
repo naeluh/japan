@@ -140,10 +140,11 @@ function saleCard() {
     ul.append(li);
   });
   card.append(ul);
-  if (calToken) {
-    const https = location.origin + '/api/calendar?t=' + calToken;
+  { // the token is only needed when the site is locked with EDIT_KEY
+    const qs = calToken ? '?t=' + calToken : '';
+    const https = location.origin + '/api/calendar' + qs;
     const acts = el('div', 'pills');
-    const sub = el('a', 'chip'); sub.href = 'webcal://' + location.host + '/api/calendar?t=' + calToken; withIcon(sub, 'calendar', 'Subscribe in your calendar');
+    const sub = el('a', 'chip'); sub.href = 'webcal://' + location.host + '/api/calendar' + qs; withIcon(sub, 'calendar', 'Subscribe in your calendar');
     const cp = el('button', 'chip'); cp.type = 'button'; withIcon(cp, 'copy', 'Copy calendar link'); cp.onclick = () => ctx.copyText(https, 'Calendar link copied. Paste it into Google Calendar under Other calendars → From URL.');
     acts.append(sub, cp); card.append(acts);
   }

@@ -1,4 +1,4 @@
-import { send, access, calToken } from './_lib/http.js';
+import { send, access, calToken, locked } from './_lib/http.js';
 import { backend } from './_lib/store.js';
 import { rakutenReady } from './_lib/rakuten.js';
 import { mailReady } from './_lib/mail.js';
@@ -6,7 +6,7 @@ import { mailReady } from './_lib/mail.js';
 export default function handler(req, res) {
   const { canEdit, canView } = access(req);
   send(res, 200, {
-    canEdit, canView,
+    canEdit, canView, locked: locked(),
     storage: backend,
     calToken: canView ? calToken() : '',
     features: {

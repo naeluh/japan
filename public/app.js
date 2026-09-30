@@ -84,7 +84,7 @@ function syncPill() {
   const p = $('#syncPill'); if (!db) { p.hidden = true; return; }
   p.hidden = false;
   const waiting = API.pending ? API.pending() : 0;
-  const [cls, text] = !canWrite ? ['readonly', navigator.onLine ? 'View only' : 'Offline'] : !navigator.onLine ? ['offline', waiting ? 'Offline · ' + waiting + ' to sync' : 'Offline']
+  const [cls, text] = !canWrite ? ['readonly', navigator.onLine ? 'Locked' : 'Offline'] : !navigator.onLine ? ['offline', waiting ? 'Offline · ' + waiting + ' to sync' : 'Offline']
     : waiting ? ['saving', 'Syncing ' + waiting] : pending ? ['saving', 'Saving'] : ['', 'Saved'];
   p.className = 'pill-status' + (cls ? ' ' + cls : ''); p.textContent = text;
 }
@@ -125,7 +125,7 @@ API.askName = () => new Promise(resolve => {
   openSheet({ title: 'What should we call you?', body: f, foot: [ok], onClose: () => { if (!done) resolve(''); } });
 });
 
-/* ---------- Keys: switch this browser to another link, and explain view-only instead of dead controls ---------- */
+/* ---------- Keys: switch this browser to another link (the site can be locked with EDIT_KEY) ---------- */
 function useKey(v) {
   let k = String(v || '').trim();
   try { k = new URL(k).searchParams.get('k') || ''; } catch (e) { /* a bare key */ }
@@ -136,10 +136,10 @@ function needEdit() {
   const f = el('form', 'lock-form'); f.id = 'keyForm';
   const inp = el('input', 'input'); inp.name = 'link'; inp.autocomplete = 'off'; inp.placeholder = 'https://…/?k=…'; inp.setAttribute('aria-label', 'The edit link');
   f.append(inp); f.onsubmit = (ev) => { ev.preventDefault(); useKey(inp.value); };
-  const body = el('div'); body.append(el('p', 'lead', 'This browser opened the view-only link, so it can look but not change anything. Open the edit link on this device once, or paste it here.'), f);
+  const body = el('div'); body.append(el('p', 'lead', 'The site is locked and this browser\'s link no longer works. Paste the current link to keep editing.'), f);
   body.firstChild.style.marginTop = '0';
   const open = el('button', 'btn', 'Open'); open.type = 'submit'; open.setAttribute('form', 'keyForm');
-  openSheet({ title: 'This is the view-only link', body, foot: [open] });
+  openSheet({ title: 'This link can\'t make changes', body, foot: [open] });
 }
 
 /* ---------- Routing: #/plan, #/money, ... (old #c1, #d03, #budget anchors still work) ---------- */
@@ -544,6 +544,7 @@ function flashItem(id) {
 
 /* ---------- Live data ---------- */
 let features = {};
+let siteLocked = false;   // EDIT_KEY set on the server: links need ?k=
 let liveFx = null;
 function liveRate() { return liveFx && settings.useLive !== false ? liveFx.rate : null; }
 function rerender() { render(); }
@@ -654,7 +655,7 @@ function hotelBox(i) {
   return box;
 }
 async function loadLive() {
-  try { const c = await API.config; features = c.features || {}; } catch (e) { /* offline or no config */ }
+  try { const c = await API.config; features = c.features || {}; siteLocked = !!c.locked; } catch (e) { /* offline or no config */ }
   API.api('/api/fx').then(r => { liveFx = r; renderSettingsForm(false); rerender(); }).catch(() => {});
   rerender();
 }
@@ -1045,12 +1046,10 @@ function timePatch(d) { return { start: d.start || '', end: d.start ? (d.end || 
 function openShare() {
   const b = el('div');
   const row = el('div'); row.style.display = 'flex'; row.style.gap = '8px';
-  const inp = el('input', 'input'); inp.readOnly = true; inp.value = location.origin + '/?k=' + encodeURIComponent(API.key()); inp.setAttribute('aria-label', 'Link to this plan');
+  const inp = el('input', 'input'); inp.readOnly = true; inp.value = location.origin + '/' + (siteLocked && API.key() ? '?k=' + encodeURIComponent(API.key()) : ''); inp.setAttribute('aria-label', 'Link to this plan');
   const c = el('button', 'btn'); c.type = 'button'; withIcon(c, 'copy', 'Copy'); c.onclick = () => copyText(inp.value, 'Link copied.');
   row.append(inp, c);
-  b.append(row, el('p', 'help', canWrite
-    ? 'Anyone with this link can see and edit the plan. For someone who should only look, send the view-only link instead (see the README).'
-    : 'Anyone with this link can see the plan but not change it.'));
+  b.append(row, el('p', 'help', 'Anyone with this link can see and edit the plan, and every change saves for everyone.'));
   b.lastChild.style.marginTop = '10px';
   openSheet({ title: 'Share this plan', body: b });
   inp.select();
@@ -1163,7 +1162,7 @@ async function renderLog() {
 function setAccessStatus() {
   if (!db) return;
   if (canWrite) setStatus(['Changes save for everyone who opens this page. ', { b: 'Tap a colored dot' }, ' to set priority: red high, yellow medium, green low.']);
-  else setStatus(['You\'re viewing the live plan. ', { b: 'Read-only:' }, ' ask Kristin for the edit link to make changes.']);
+  else setStatus(['This browser\'s link no longer works. ', { b: 'Paste the current link' }, ' to keep editing.']);
 }
 
 /* ---------- Controls ---------- */

@@ -37,13 +37,12 @@ Not automated: train fares and timetables. There's no free fare API for the Shin
 1. **Code on GitHub, project on Vercel.** Import the repository in Vercel (**Add New → Project**), framework **Other**, no build command. Pushes to `main` deploy to production.
 2. **Storage.** Create a free project at [neon.tech](https://neon.tech) (no card) and copy its connection string into `DATABASE_URL`. The app creates its tables and loads your plan the first time it runs. (Vercel's **Storage → Neon** integration also works; it sets `DATABASE_URL` for you.) A second Neon branch makes a safe database for previews and local testing.
 3. **Settings** under **Settings → Environment Variables** (see `.env.example`):
-   - `EDIT_KEY`: a long random string, the password in your edit link.
-   - `VIEW_KEY`: a second random string for view-only links. With it set, the plan is private; without it, anyone with the site address can read it (not change it). The plan now holds confirmation codes and who paid what, so set it.
+   - `EDIT_KEY` (optional): leave it unset and anyone who opens the site can see and edit the plan. Set it to a long random string to lock the whole site to people who have the link `https://YOUR-SITE.vercel.app/?k=YOUR_EDIT_KEY`. There is one mode either way: whoever can see the plan can edit it.
    - `CRON_SECRET`: a long random string. Vercel sends it with the nightly price-watch run; nothing else can trigger that run without the edit key.
    - `PUBLIC_URL`: your site address. Rakuten wants it as the referring site, and alert emails link back to it.
    - Optional: `RAKUTEN_APP_ID` + `RAKUTEN_ACCESS_KEY` (live prices), `RESEND_API_KEY` + `ALERT_EMAIL` (email alerts), `CONTACT_EMAIL` (OpenStreetMap services ask apps to identify themselves).
 4. **Redeploy** so the settings take effect.
-5. **Open** `https://YOUR-SITE.vercel.app/?k=YOUR_EDIT_KEY`. The key is saved in that browser and removed from the address bar. The first edit asks your name for Recent changes.
+5. **Open** `https://YOUR-SITE.vercel.app` (add `?k=YOUR_EDIT_KEY` if you locked it; the key is then saved in that browser). The first edit asks your name for Recent changes.
 
 ## Price watch and alerts
 
@@ -78,16 +77,15 @@ Open the site on your phone and use **Add to Home Screen**. The app shell is cac
 
 ## Sharing
 
-- **Editors:** the **Share** button copies `https://YOUR-SITE.vercel.app/?k=YOUR_EDIT_KEY`. Anyone with it can edit, so send it privately.
-- **View-only:** send `https://YOUR-SITE.vercel.app/?k=YOUR_VIEW_KEY` by hand.
-- To cut off a link, change the key in Vercel and redeploy.
+- The **Share** button copies the site address (with `?k=` when the site is locked). Anyone who has it can see and edit everything, confirmation codes included, and every change saves for everyone.
+- The site is open by default. The GitHub repo is public and Vercel shows the site address there, so if strangers ever find it, set `EDIT_KEY` in Vercel and redeploy: the plain address then shows a "private plan" card and only links with the key work. Changing the key later cuts off old links.
 
 ## Run it on your computer
 
 ```
 npm install               # the Neon driver is the only dependency
-cp .env.example .env      # set EDIT_KEY at least
-npm run dev               # http://localhost:3000/?k=YOUR_EDIT_KEY
+cp .env.example .env      # everything is optional for local use
+npm run dev               # http://localhost:3000
 npm test                  # server logic and the database API (node:test)
 ```
 
@@ -100,7 +98,7 @@ Without `DATABASE_URL` the dev server keeps data in `.local-db.json` (`LOCAL_DB_
 - `public/trip.js`: trip facts and pure helpers shared by the page and the server (days, dates, search links, taste profile, settle-up, sale dates).
 - `public/shim.js`: connects the page to the API: key handling, 5-second sync, offline copy and outbox.
 - `public/sw.js`, `manifest.webmanifest`, icons: the installable offline app.
-- `api/db.js`: stores the plan in Postgres. Reads need the view or edit key when `VIEW_KEY` is set; writes need the edit key.
+- `api/db.js`: stores the plan in Postgres. Open to anyone unless `EDIT_KEY` is set, in which case reads and writes need it.
 - `api/watch.js` (nightly price watch), `api/calendar.js` (sale-date feed), `api/discover.js` (places and opening hours), and `api/fx.js`, `weather.js`, `walk.js`, `geocode.js`, `hotel-price.js`, `config.js`.
 - `api/_lib/`: storage (Postgres, or a local file in development), Rakuten client, OpenStreetMap and Wikidata discovery, opening-hours parser, alert rules, calendar writer, email, and your plan as first exported (`seed.js`, loaded the first time storage is empty).
 - `test/`: `npm test` checks.

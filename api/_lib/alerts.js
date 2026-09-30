@@ -31,8 +31,9 @@ export function applyCheck(prev, r, { title = 'A stay', target = null, day, at =
 
 /* Shifting the stay one day either way: what it would cost relative to the dates you have. */
 export function flexFrom(base, earlier, later) {
-  const one = (r, dir) => r && r.found && r.available && r.estimateTotal != null && base.estimateTotal != null
-    ? { dir, total: r.estimateTotal, diff: r.estimateTotal - base.estimateTotal } : { dir, total: null, diff: null, available: !!(r && r.available) };
+  // A shifted date can have rooms when yours are sold out: keep its price, with no difference to compare against.
+  const one = (r, dir) => r && r.found && r.available && r.estimateTotal != null
+    ? { dir, total: r.estimateTotal, diff: base.estimateTotal != null ? r.estimateTotal - base.estimateTotal : null } : { dir, total: null, diff: null, available: false };
   return { earlier: one(earlier, -1), later: one(later, 1) };
 }
 

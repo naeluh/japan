@@ -134,6 +134,7 @@ export default {
   "detail": "Shinjuku → Hakone-Yumoto, 11:00 AM or close. Seats open at 10:00 AM Japan time one month ahead (Mar 4).",
   "done": false,
   "group": "b-march",
+  "opens": "2027-03-04T10:00",
   "links": [
    {
     "label": "e-Romancecar",
@@ -158,6 +159,7 @@ export default {
   "detail": "Sales open Feb 5, 10:00 AM Japan time. No changes or refunds; the slot is void if you're 30+ minutes late.",
   "done": false,
   "group": "b-feb",
+  "opens": "2027-02-05T10:00",
   "links": [
    {
     "label": "Chichu tickets",
@@ -173,6 +175,7 @@ export default {
   "detail": "Minamidera around 10:15 AM; Teshima Art Museum around 2:00 PM. Timed tickets on the Benesse Art Site page.",
   "done": false,
   "group": "b-feb",
+  "opens": "2027-02-05T10:00",
   "links": [
    {
     "label": "Benesse Art Site tickets",
@@ -236,6 +239,7 @@ export default {
   "done": false,
   "end": "",
   "group": "b-march",
+  "opens": "2027-03-15",
   "kind": "activity",
   "links": [
    {
@@ -253,6 +257,7 @@ export default {
   "done": false,
   "end": "",
   "group": "b-march",
+  "opens": "2027-03-06",
   "kind": "activity",
   "links": [
    {

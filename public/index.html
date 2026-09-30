@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="/app.css">
 <script src="/shim.js"></script>
 <script type="module" src="/app.js"></script>
+<script type="module" src="/deals.js"></script>
 </head>
 <body>
 <header class="top">
@@ -93,6 +94,14 @@
       <ol id="log"></ol>
       <p class="empty" id="logEmpty">No changes yet. Edits made by anyone with access show up here.</p>
     </section>
+    <div class="foot-space"></div>
+  </div>
+</section>
+
+<section class="screen" data-screen="deals" aria-label="Deals" hidden>
+  <div class="wrap">
+    <header class="money-head"><p class="kicker">Price watch</p><h1>Deals</h1></header>
+    <div class="stack-v" id="deals"></div>
     <div class="foot-space"></div>
   </div>
 </section>

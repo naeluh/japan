@@ -80,6 +80,8 @@ test('price watch: flexible dates and sale reminders', () => {
   const f = flexFrom({ estimateTotal: 60000 }, { found: true, available: true, estimateTotal: 42000 }, { found: true, available: false });
   assert.equal(f.earlier.diff, -18000);
   assert.equal(f.later.total, null);
+  const sold = flexFrom({ estimateTotal: null }, { found: true, available: true, estimateTotal: 50000 }, null);
+  assert.deepEqual(sold.earlier, { dir: -1, total: 50000, diff: null });
   assert.equal(opensAt('2027-02-05T10:00'), Date.parse('2027-02-05T01:00:00Z'));
   assert.equal(opensAt('2027-03-15'), Date.parse('2027-03-14T15:00:00Z'));
   assert.equal(opensAt('Feb 5'), null);

@@ -47,6 +47,7 @@
     })();
     return loading;
   }
+  window.TRIP_API.pull = () => pull();
   let timer = null;
   function schedule() {
     clearTimeout(timer);

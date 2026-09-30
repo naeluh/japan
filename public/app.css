@@ -449,6 +449,36 @@ dialog.sheet::backdrop{background:var(--scrim);-webkit-backdrop-filter:blur(var(
 }
 @keyframes sheet-in{from{transform:translateY(100%)}}
 
+/* ---------- Deals ---------- */
+.deals-top{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between}
+.deals-top p{margin:0;font-size:14px}
+.stay{display:grid;gap:12px}
+.stay-head{display:flex;gap:12px;align-items:flex-start;justify-content:space-between}
+.stay-head .kicker{margin:4px 0 0}
+.stay-price .bignum{margin:0}
+.stay-sub{margin:6px 0 0;font-size:13px;color:var(--fg-2);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.delta{margin:6px 0 0;font-size:14px;color:var(--fg-2)}
+.delta.good{color:var(--success)} .delta.bad{color:var(--danger)}
+.stay>.kicker{margin:4px 0 -4px}
+.flexrow{display:flex;flex-wrap:wrap;gap:6px}
+.chip.good{background:var(--success-bg);color:var(--success);border-color:transparent}
+.mealcmp{display:grid;gap:6px;background:var(--surface-2);border-radius:var(--r-panel);padding:12px}
+.mealcmp .mrow{display:grid;grid-template-columns:1fr auto;gap:0 12px;font-size:14px}
+.mealcmp .mrow .num{font:500 14px var(--font-mono)}
+.mealcmp .mrow .muted{grid-column:1/-1;font-size:12px}
+.mealcmp .delta{margin:2px 0 0}
+ol.hist{list-style:none;margin:8px 0 0;padding:0;font-size:13px}
+ol.hist li{display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid var(--border)}
+ol.hist .num{font:13px var(--font-mono)}
+ul.sales{list-style:none;margin:10px 0 0;padding:0}
+ul.sales li{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:10px 0;border-top:1px solid var(--border);font-size:14px}
+ul.sales li:first-child{border-top:0}
+ul.sales .grow{flex:1;min-width:180px}
+ul.sales .title{font-weight:500}
+ul.sales .muted{font-size:12px}
+ul.alerts li{flex-wrap:nowrap;align-items:flex-start}
+ul.alerts .badge{margin-top:2px}
+
 /* ---------- Toast, log ---------- */
 .toast{position:fixed;left:50%;bottom:calc(16px + var(--dock-h) + env(safe-area-inset-bottom,0px));z-index:40;transform:translate(-50%,8px);max-width:min(92vw,480px);
   background:var(--surface-1);color:var(--fg);border:1px solid var(--border);box-shadow:var(--shadow-raised);border-radius:var(--r-panel);

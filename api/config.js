@@ -1,14 +1,20 @@
-import { send, access } from './_lib/http.js';
+import { send, access, calToken } from './_lib/http.js';
 import { hasRedis } from './_lib/store.js';
+import { rakutenReady } from './_lib/rakuten.js';
+import { mailReady } from './_lib/mail.js';
 
 export default function handler(req, res) {
   const { canEdit, canView } = access(req);
   send(res, 200, {
     canEdit, canView,
     storage: hasRedis ? 'redis' : 'local',
+    calToken: canView ? calToken() : '',
     features: {
-      fx: true, weather: true, walk: true, geocode: true,
-      hotels: !!(process.env.RAKUTEN_APP_ID && process.env.RAKUTEN_ACCESS_KEY)
+      fx: true, weather: true, walk: true, geocode: true, discover: true,
+      hotels: rakutenReady(),
+      watch: rakutenReady() && !!process.env.CRON_SECRET,
+      mail: mailReady(),
+      assistant: !!process.env.ANTHROPIC_API_KEY
     }
   });
 }

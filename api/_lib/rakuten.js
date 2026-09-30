@@ -3,7 +3,7 @@
 import { getJSON, sleep } from './http.js';
 import { cacheGet, cacheSet } from './store.js';
 
-const BASE = 'https://openapi.rakuten.co.jp/engine/api/Travel';
+const BASE = process.env.RAKUTEN_BASE || 'https://openapi.rakuten.co.jp/engine/api/Travel'; // override points tests at a fake
 export const ISO = /^\d{4}-\d{2}-\d{2}$/;
 export const rakutenReady = () => !!(process.env.RAKUTEN_APP_ID && process.env.RAKUTEN_ACCESS_KEY);
 export const NOTE = 'Rakuten returns the first night\'s price; the total assumes every night costs the same. Taxes and service are included; local accommodation tax may be extra.';

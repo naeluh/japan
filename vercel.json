@@ -1,4 +1,6 @@
 {
+  "crons": [{ "path": "/api/watch", "schedule": "0 21 * * *" }],
+  "functions": { "api/watch.js": { "maxDuration": 300 } },
   "headers": [
     { "source": "/api/(.*)", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
     { "source": "/(.*)", "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }, { "key": "Referrer-Policy", "value": "same-origin" }] }

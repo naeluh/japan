@@ -8,7 +8,7 @@ export function send(res, status, body) {
 }
 export function fail(res, status, code, message) { send(res, status, { code, message }); }
 
-function same(a, b) {
+export function same(a, b) {
   const x = Buffer.from(String(a)), y = Buffer.from(String(b));
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
@@ -20,6 +20,11 @@ export function access(req) {
   const canEdit = !!edit && !!key && same(key, edit);
   const canView = canEdit || !view || (!!key && same(key, view));
   return { canEdit, canView };
+}
+// Read-only token for calendar subscriptions: calendar apps can't send headers, and a raw key in a shared URL would leak edit rights.
+export function calToken() {
+  const secret = process.env.EDIT_KEY || process.env.VIEW_KEY || '';
+  return secret ? crypto.createHmac('sha256', secret).update('calendar').digest('hex').slice(0, 24) : '';
 }
 export function query(req) {
   if (req.query) return req.query;

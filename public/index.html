@@ -35,6 +35,17 @@
 </header>
 
 <main>
+<section class="wrap" id="lockView" hidden>
+  <div class="card pad lock">
+    <p class="kicker">Private plan</p>
+    <h1 class="section-title">Open it with the link you were sent</h1>
+    <p class="lead">The link ends in <span class="mono">?k=</span> followed by a key. Paste it here once and this browser remembers it.</p>
+    <form id="lockForm" class="lock-form">
+      <input class="input" name="link" autocomplete="off" placeholder="https://…/?k=…" aria-label="Your link or key">
+      <button class="btn" type="submit">Open</button>
+    </form>
+  </div>
+</section>
 <section class="screen" data-screen="plan" aria-label="Plan">
   <div class="wrap">
     <header class="hero">

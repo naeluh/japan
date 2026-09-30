@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.1 (2026-09-30)
+
+- Opening the site without a key now shows a "private plan" card on every screen, with a box to paste your link, instead of blank screens. The Share button hides until a key is present.
+
 ## 2.0.0 (2026-09-30)
 
 A redesign on the Kuzic design system, and the four-phase roadmap built out: the planner now goes looking for better prices and unusual places on its own, and works as an offline travel app.

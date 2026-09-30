@@ -539,6 +539,12 @@ ul.dayline input.check{width:20px;height:20px;margin:0;flex:none}
 label.btn{position:relative}
 label.btn.busy{opacity:.7;pointer-events:none}
 
+/* ---------- No key ---------- */
+#lockView{padding-top:24px}
+.lock{display:grid;gap:8px}
+.lock .kicker,.lock .lead{margin:0}
+.lock-form{display:flex;gap:8px;margin-top:8px}
+
 /* ---------- Toast, log ---------- */
 .toast{position:fixed;left:50%;bottom:calc(16px + var(--dock-h) + env(safe-area-inset-bottom,0px));z-index:40;transform:translate(-50%,8px);max-width:min(92vw,480px);
   background:var(--surface-1);color:var(--fg);border:1px solid var(--border);box-shadow:var(--shadow-raised);border-radius:var(--r-panel);

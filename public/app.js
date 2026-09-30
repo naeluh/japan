@@ -1192,7 +1192,18 @@ async function boot() {
   const [d, u] = await Promise.all([window.claude.use('db'), window.claude.use('user')]);
   loadLive();
   db = d; user = u;
-  if (!db) { setStatus(['This link doesn\'t include a valid trip key. Ask whoever shared the plan for the full link.']); return; }
+  if (!db) { // no valid key: say so on every screen instead of leaving them blank
+    setStatus(['This link doesn\'t include a valid trip key. Ask whoever shared the plan for the full link.']);
+    $('#lockView').hidden = false; $('#shareBtn').hidden = true;
+    $('#lockForm').onsubmit = (ev) => {
+      ev.preventDefault();
+      const v = ev.target.link.value.trim(); let k = v;
+      try { k = new URL(v).searchParams.get('k') || ''; } catch (e) { /* a bare key */ }
+      if (!k) { toast('That link doesn\'t have a key in it (the part after ?k=).'); return; }
+      location.href = location.pathname + '?k=' + encodeURIComponent(k) + location.hash;
+    };
+    return;
+  }
   if (user) {
     try { uid = await user.id(); } catch (e) { /* anonymous */ }
     try { const c = await user.can('data.write'); if (c === false) canWrite = false; } catch (e) { /* assume editable until a write says otherwise */ }

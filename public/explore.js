@@ -1,6 +1,6 @@
 /* Explore: unusual places near your plan (OpenStreetMap + Wikidata), "fits your gap" suggestions, and taste learning. */
 import { ctx } from './app.js';
-import { GROUPS, GROUP_DATE, CH_CITY, groupCh, tasteProfile } from './trip.js';
+import { GROUPS, GROUP_DATE, CH_CITY, groupCh, tasteProfile, links, stayLinks } from './trip.js';
 
 const { $, el, icon, withIcon, extLink, toast } = ctx;
 const API = window.TRIP_API;
@@ -168,87 +168,61 @@ function controls() {
   return card;
 }
 
-/* ---------- Ask: the Claude trip assistant ---------- */
-const PRESETS = [
-  'Find a historic ryokan in Kyoto with a private bath under $250 a night, walkable to Gion.',
-  'Find savings across the whole trip: nights to move, day trips to swap, passes worth buying.',
-  'What unusual places fit the free time on Thursday in Kyoto?'
-];
-let chat = [];
-try { chat = JSON.parse(sessionStorage.getItem('trip:chat') || '[]'); } catch (e) { chat = []; }
-let asking = false;
-function saveChat() { try { sessionStorage.setItem('trip:chat', JSON.stringify(chat.slice(-30))); } catch (e) { /* per-tab convenience only */ } }
-
-/* Model text -> DOM, never innerHTML: paragraphs, "- " lists, **bold**, and links through safeUrl. */
-function inline(parent, text) {
-  const re = /(\*\*[^*]+\*\*|https?:\/\/[^\s)\]]+|\[[^\]]+\]\((https?:\/\/[^)\s]+)\))/g;
-  let last = 0, m;
-  while ((m = re.exec(text))) {
-    if (m.index > last) parent.append(document.createTextNode(text.slice(last, m.index)));
-    const tok = m[0];
-    if (tok.startsWith('**')) parent.append(el('strong', null, tok.slice(2, -2)));
-    else {
-      const md = /^\[([^\]]+)\]\((.+)\)$/.exec(tok); const url = ctx.safeUrl(md ? md[2] : tok);
-      if (url) { const a = el('a', null, md ? md[1] : url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 48)); a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; parent.append(a); }
-      else parent.append(document.createTextNode(tok));
-    }
-    last = m.index + tok.length;
-  }
-  if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
+/* ---------- Search: prefilled searches on Google Maps, Google, Tabelog and hotel sites (free, no key) ---------- */
+function linkChips(title, pairs) {
+  const sec = el('div', 'linkgroup'); sec.append(el('p', 'kicker', title));
+  const p = el('div', 'pills'); pairs.forEach(([label, url]) => { const a = extLink(url, label); if (a) p.append(a); });
+  sec.append(p); return sec;
 }
-function richText(text) {
-  const box = el('div', 'rich'); let list = null;
-  for (const raw of String(text).split('\n')) {
-    const line = raw.trimEnd();
-    const li = /^\s*(?:[-*•]|\d+[.)])\s+(.*)$/.exec(line);
-    if (li) { if (!list) { list = el('ul'); box.append(list); } const n = el('li'); inline(n, li[1]); list.append(n); continue; }
-    list = null;
-    if (!line.trim()) continue;
-    const h = /^#{1,4}\s+(.*)$/.exec(line);
-    const p = el(h ? 'h4' : 'p'); inline(p, h ? h[1] : line); box.append(p);
-  }
-  return box;
+function tonightStay(date) {
+  return ctx.live().find(i => i.cat === 'lodging' && GROUP_DATE[i.group] && i.nights > 0 && GROUP_DATE[i.group] <= date && date < ctx.addDaysISO(GROUP_DATE[i.group], i.nights));
 }
-async function ask(text) {
-  text = String(text || '').trim(); if (!text || asking) return;
-  chat.push({ role: 'user', text }); asking = true; saveChat(); render();
-  try {
-    const r = await API.api('/api/assistant', { method: 'POST', body: JSON.stringify({ messages: chat.map(m => ({ role: m.role, text: m.text })) }) });
-    chat.push({ role: 'assistant', text: r.text, trace: r.trace || [] });
-  } catch (e) {
-    chat.push({ role: 'assistant', text: (e && e.message) || 'The assistant didn\'t answer. Try again.', error: true });
-  } finally { asking = false; saveChat(); render(); }
-}
-function askPanel(root) {
-  if (!ctx.features.assistant) {
-    root.append(el('p', 'slab info', ctx.canWrite ? 'The assistant turns on with ANTHROPIC_API_KEY in the Vercel settings.' : 'The assistant needs the edit link.'));
-    return;
+function searchPanel(root) {
+  const g = GROUPS.find(G => G.id === state.day), date = GROUP_DATE[state.day], city = CH_CITY[groupCh(state.day)] || 'Japan';
+  const card = el('section', 'card pad');
+  const row = el('div', 'row2');
+  const dayL = el('label', 'field'); dayL.append(el('span', null, 'Day'));
+  const daySel = el('select'); DAYS.forEach(d => { const o = el('option', null, d.when); o.value = d.id; daySel.append(o); }); daySel.value = state.day;
+  daySel.onchange = () => { state.day = daySel.value; state.anchor = ''; render(); };
+  dayL.append(daySel);
+  const nearL = el('label', 'field'); nearL.append(el('span', null, 'Near'));
+  const nearSel = el('select'); const stops = stopsFor(state.day);
+  stops.forEach(i => { const o = el('option', null, (i.start ? ctx.fmt12(i.start) + ' · ' : '') + (i.place || i.title).split(',')[0].slice(0, 40)); o.value = i.id; nearSel.append(o); });
+  const cityOpt = el('option', null, 'Anywhere in ' + city); cityOpt.value = ''; nearSel.append(cityOpt);
+  nearSel.value = stops.some(i => i.id === state.anchor) ? state.anchor : (stops[0] ? stops[0].id : '');
+  nearSel.onchange = () => { state.anchor = nearSel.value || '__city'; render(); };
+  nearL.append(nearSel);
+  row.append(dayL, nearL);
+  const stop = state.anchor === '__city' ? null : (stops.find(i => i.id === state.anchor) || stops[0]);
+  const near = stop ? (stop.place || stop.title).split(',')[0] : city;
+  const where = stop ? near + ', ' + city : city;
+  const f = el('form', 'lock-form');
+  const q = el('input', 'input'); q.placeholder = 'Matcha, a quiet bar, a kintsugi class…'; q.setAttribute('aria-label', 'What are you looking for?');
+  const go = el('button', 'btn'); go.type = 'submit'; withIcon(go, 'search', 'Search Maps');
+  f.append(q, go);
+  f.onsubmit = (ev) => { ev.preventDefault(); const t = q.value.trim(); if (!t) return; window.open(links.maps(t + ' near ' + where), '_blank', 'noopener'); };
+  card.append(row, f, el('p', 'help', 'Opens Google Maps searching near ' + where + '.'));
+  root.append(card);
+  const res = el('section', 'card pad stack-v');
+  res.append(linkChips('Around ' + near, [
+    ['Things to do', links.maps('things to do near ' + where)], ['Cafés', links.maps('cafe near ' + where)],
+    ['Restaurants', links.maps('restaurants near ' + where)], ['Tabelog ratings', links.google('tabelog ' + where)],
+    ['Old shops', links.maps('traditional shop near ' + where)], ['Bathhouses', links.maps('sento near ' + where)],
+    ['Stationery', links.maps('stationery near ' + where)], ['Museums', links.maps('museum near ' + where)]
+  ]));
+  const long = new Date(date + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  res.append(linkChips(g.when + ' in ' + city, [
+    ['Events that day', links.google(city + ' events ' + long)], ['Cherry blossom forecast', links.google('sakura forecast ' + city + ' 2027')],
+    ['Festivals', links.google(city + ' matsuri April 2027')], ['Rainy-day ideas', links.google('rainy day things to do ' + city)]
+  ]));
+  const stay = tonightStay(date);
+  if (stay) {
+    const name = (stay.place || stay.title).split(',')[0], ci = GROUP_DATE[stay.group], co = ctx.addDaysISO(ci, stay.nights);
+    res.append(linkChips('Tonight\'s stay: ' + name, stayLinks(stay, name, city, ci, co)));
+    res.append(linkChips('Other places to stay in ' + city, [['Booking.com, your dates', links.booking(city, ci, co)], ['Ryokan in ' + city, links.google('best ryokan ' + city + ' private onsen')], ['Google Hotels', links.google('hotels in ' + city + ' ' + long)]]));
   }
-  if (!ctx.canWrite) { root.append(el('p', 'slab info', 'The assistant needs the edit link.')); return; }
-  const log = el('div', 'chat');
-  if (!chat.length) {
-    const intro = el('section', 'card pad');
-    intro.append(el('p', 'lead', 'Ask about the plan in plain English. It reads your plan and runs real searches: Rakuten prices, OpenStreetMap places and hours, walking times and your fare table.'));
-    const pills = el('div', 'pills'); PRESETS.forEach(t => { const b = el('button', 'chip', t); b.type = 'button'; b.onclick = () => ask(t); pills.append(b); });
-    intro.append(pills); log.append(intro);
-  }
-  chat.forEach(m => {
-    const b = el('div', 'bubble ' + m.role + (m.error ? ' error' : ''));
-    if (m.role === 'user') b.append(el('p', null, m.text)); else b.append(richText(m.text));
-    if (m.trace && m.trace.length) { const t = el('div', 'trace'); m.trace.forEach(x => t.append(el('span', 'badge', x.label))); b.append(t); }
-    log.append(b);
-  });
-  if (asking) log.append(el('div', 'bubble assistant thinking', 'Looking it up…'));
-  root.append(log);
-  const f = el('form', 'composer');
-  const ta = el('textarea'); ta.rows = 2; ta.placeholder = 'Ask about the trip'; ta.setAttribute('aria-label', 'Ask the trip assistant'); ta.maxLength = 4000;
-  ta.onkeydown = (ev) => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); f.requestSubmit(); } };
-  const send = el('button', 'btn icon'); send.type = 'submit'; send.setAttribute('aria-label', 'Send'); send.append(icon('send')); send.disabled = asking;
-  f.append(ta, send);
-  f.onsubmit = (ev) => { ev.preventDefault(); const v = ta.value; ta.value = ''; ask(v); };
-  root.append(f);
-  if (chat.length) { const clr = el('button', 'skiplink', 'Start over'); clr.type = 'button'; clr.onclick = () => { chat = []; saveChat(); render(); }; root.append(clr); }
-  if (asking || chat.length) requestAnimationFrame(() => { if (document.activeElement !== ta) f.scrollIntoView({ block: 'end' }); });
+  res.append(el('p', 'help', 'Each link opens that site\'s own search. Nothing here needs a key or costs anything.'));
+  root.append(res);
 }
 
 function render() {
@@ -257,9 +231,9 @@ function render() {
   root.textContent = '';
   if (!ctx.loaded) return;
   const modes = el('div', 'seg'); modes.setAttribute('role', 'group'); modes.setAttribute('aria-label', 'Explore mode');
-  [['nearby', 'Nearby'], ['ask', 'Ask']].forEach(([id, label]) => { const b = el('button', null, label); b.type = 'button'; b.setAttribute('aria-pressed', String(state.mode === id)); b.onclick = () => { state.mode = id; render(); }; modes.append(b); });
+  [['nearby', 'Nearby'], ['search', 'Search']].forEach(([id, label]) => { const b = el('button', null, label); b.type = 'button'; b.setAttribute('aria-pressed', String(state.mode === id)); b.onclick = () => { state.mode = id; render(); }; modes.append(b); });
   root.append(modes);
-  if (state.mode === 'ask') { askPanel(root); return; }
+  if (state.mode === 'search') { searchPanel(root); return; }
   root.append(controls());
   if (state.gap) {
     const g = state.gap; const s = el('div', 'slab info gapnote');
@@ -308,4 +282,4 @@ ctx.itemHooks.push((i) => {
   if (tb) tb.append(b);
 }
 
-ctx.register('explore', { render, ask: (t) => { state.mode = 'ask'; ctx.go('explore'); ask(t); } });
+ctx.register('explore', { render });

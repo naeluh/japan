@@ -44,6 +44,22 @@ export function opensAt(s) {
   return m ? Date.parse(`${m[1]}T${m[2] || '00:00'}:00+09:00`) : null;
 }
 
+/* ---------- Free search links: sites with no open data get a prefilled search instead (no key, no cost) ---------- */
+export const links = {
+  google: (q) => 'https://www.google.com/search?q=' + encodeURIComponent(q),
+  maps: (q) => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q),
+  site: (host, q) => 'https://www.google.com/search?q=' + encodeURIComponent('site:' + host + ' ' + q),
+  booking: (q, checkin, checkout, adults = TRIP.adults) => 'https://www.booking.com/searchresults.html?' +
+    new URLSearchParams({ ss: q, checkin, checkout, group_adults: String(adults), no_rooms: '1', group_children: '0' })
+};
+
+/* A stay compared elsewhere: Booking.com with your dates, Google, and site searches on Japanese sites (Japanese name works best). */
+export function stayLinks(stay, name, city, checkin, checkout) {
+  const jp = stay.hotelQuery || name;
+  return [['Booking.com', links.booking(name + ' ' + city, checkin, checkout)], ['Google prices', links.google(name + ' ' + city + ' hotel prices')],
+    ['Jalan', links.site('jalan.net', jp)], ['Ikyu', links.site('ikyu.com', jp)], ['Rakuten Travel', links.site('travel.rakuten.co.jp', jp)]];
+}
+
 /* ---------- Taste: what the two of you keep choosing ---------- */
 export const TASTE_WORDS = {
   stationery: /stationer|paper|washi|ink\b|pen\b|notebook|itoya|kakimori/i,

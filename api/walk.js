@@ -3,7 +3,7 @@
 import { send, fail, query, getJSON, UA } from './_lib/http.js';
 import { cacheGet, cacheSet } from './_lib/store.js';
 
-/* [[lng,lat], ...] -> { legs: [{ minutes, km }] } or null when the router is down. The assistant uses this too. */
+/* [[lng,lat], ...] -> { legs: [{ minutes, km }] } or null when the router is down. */
 export async function walkLegs(pts) {
   const norm = pts.map(([x, y]) => `${x.toFixed(5)},${y.toFixed(5)}`).join(';');
   const key = 'walk:' + norm;

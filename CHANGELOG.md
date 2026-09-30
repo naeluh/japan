@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.0 (2026-09-30)
+
+Everything now runs on free plans.
+
+- Storage moves to Postgres on Neon's free plan (`DATABASE_URL`) instead of Upstash Redis. The app creates its tables and loads the plan on first run; revisions commit in order so no client misses a write; deleted docs keep a tombstone so every browser syncs the delete.
+- The Claude assistant and receipt scanning are removed (they needed paid API credit), along with `ANTHROPIC_API_KEY` and the Anthropic SDK.
+- In their place, free prefilled searches: **Explore → Search** opens Google Maps near the stop you pick (presets or anything you type), Tabelog, events and cherry-blossom forecasts for the day, and hotel searches for that night; each stay on Deals gets **Compare elsewhere** (Booking.com with your dates, Google prices, Jalan, Ikyu, Rakuten).
+- The fare table stays as a place to keep fares by hand.
+
 ## 2.0.1 (2026-09-30)
 
 - Opening the site without a key now shows a "private plan" card on every screen, with a box to paste your link, instead of blank screens. The Share button hides until a key is present.

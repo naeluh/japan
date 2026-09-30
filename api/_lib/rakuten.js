@@ -15,7 +15,7 @@ function creds() { return `applicationId=${encodeURIComponent(process.env.RAKUTE
 function headers() { return process.env.PUBLIC_URL ? { Referer: process.env.PUBLIC_URL, Origin: process.env.PUBLIC_URL } : {}; }
 export function addDays(d, n) { const t = new Date(d + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); }
 
-// Rakuten allows about one request per second: calls queue behind each other (parallel assistant tools included).
+// Rakuten allows about one request per second: calls queue behind each other.
 // ponytail: per-instance queue; a shared lock if several instances ever run at once.
 let last = 0, gate = Promise.resolve();
 function call(path, params) {
@@ -85,30 +85,6 @@ export async function priceStay({ name = '', hotelNo = '', checkin, checkout, ad
     planListUrl: info.planListUrl || info.hotelInformationUrl || '',
     plans: plans.slice(0, 5), meals, note: NOTE
   };
-  await cacheSet(key, out, 6 * 3600);
-  return out;
-}
-
-/* Hotels with rooms near a point, for the assistant. */
-export async function searchArea({ lat, lng, radiusKm = 1, checkin, checkout, adults = 2, maxCharge = 0, squeeze = [] }) {
-  const r = Math.min(3, Math.max(0.1, Math.round(Number(radiusKm) * 10) / 10));
-  const sq = squeeze.filter(s => ['kinen', 'internet', 'daiyoku', 'onsen', 'breakfast', 'dinner'].includes(s)).join(',');
-  const params = `latitude=${lat}&longitude=${lng}&searchRadius=${r}&datumType=1&checkinDate=${checkin}&checkoutDate=${checkout}&adultNum=${adults}&hits=15&sort=%2BroomCharge&responseType=middle`
-    + (maxCharge > 0 ? `&maxCharge=${Math.round(maxCharge)}` : '') + (sq ? `&squeezeCondition=${sq}` : '');
-  const key = 'area:' + params;
-  const hit = await cacheGet(key); if (hit) return hit;
-  const v = await call('VacantHotelSearch/20170426', params);
-  if (v.status === 404) { await cacheSet(key, [], 3 * 3600); return []; }
-  if (!v.ok) throw new RakutenError((v.json && v.json.error_description) || 'Rakuten area search failed.');
-  const out = ((v.json && v.json.hotels) || []).map(h => {
-    const { info, plans } = summarizePlans(h);
-    return {
-      hotelNo: String(info.hotelNo || ''), name: info.hotelName || '', lat: info.latitude, lng: info.longitude,
-      station: info.nearestStation || '', access: info.access || '', review: info.reviewAverage || null,
-      special: String(info.hotelSpecial || '').slice(0, 200), url: info.planListUrl || info.hotelInformationUrl || '',
-      plans: plans.slice(0, 3).map(p => ({ plan: p.plan, room: p.room, firstNight: p.firstNight, dinner: p.dinner, breakfast: p.breakfast }))
-    };
-  }).filter(h => h.name);
   await cacheSet(key, out, 6 * 3600);
   return out;
 }

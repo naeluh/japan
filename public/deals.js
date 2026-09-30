@@ -1,6 +1,6 @@
 /* Deals: the nightly price watch on every stay, flexible dates, meals-included comparison, and sale-date reminders. */
 import { ctx, watchDoc } from './app.js';
-import { GROUP_DATE, TRIP, opensAt } from './trip.js';
+import { GROUP_DATE, TRIP, CH_CITY, groupCh, opensAt, stayLinks } from './trip.js';
 
 const { $, el, icon, withIcon, extLink, toast } = ctx;
 const API = window.TRIP_API;
@@ -108,6 +108,10 @@ function stayCard(i) {
   if (a1) links.append(a1);
   if (latest && latest.url) { const a2 = extLink(latest.url, 'Rakuten rooms'); if (a2) links.append(a2); }
   card.append(links);
+  const cmp = el('div', 'pills');
+  stayLinks(i, (i.place || (w && w.hotelName) || i.title).split(',')[0].replace(/^Check in (at )?/i, ''), CH_CITY[groupCh(i.group)] || 'Japan', ci, co)
+    .forEach(([l, u]) => { const a = extLink(u, l); if (a) cmp.append(a); });
+  card.append(el('p', 'kicker', 'Compare elsewhere'), cmp);
   // History
   if (w && Array.isArray(w.history) && w.history.length > 1) {
     const det = el('details', 'disclose'); const sum = el('summary', null, w.history.length + ' checks'); sum.append(icon('chevron')); det.append(sum);
@@ -175,7 +179,7 @@ function render() {
   root.append(saleCard());
   const lim = el('section', 'card pad');
   lim.append(el('h2', 'card-title', 'What "best deal" can and can\'t see'),
-    el('p', 'lead', 'Rakuten Travel is the only live price source. Booking.com, Expedia and Agoda share prices only through partner programs, and Google Hotels, Ikyu and Jalan have no open API, so those stay as links. Small ryokan are often cheapest booked direct. Live figures are marked Live; everything else is an estimate.'));
+    el('p', 'lead', 'Rakuten Travel is the only live price source. Booking.com, Expedia and Agoda share prices only through partner programs, and Google Hotels, Ikyu and Jalan have no open API, so each stay has prefilled searches on them under Compare elsewhere. Small ryokan are often cheapest booked direct. Live figures are marked Live; everything else is an estimate.'));
   root.append(lim);
 }
 

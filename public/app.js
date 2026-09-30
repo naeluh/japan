@@ -407,7 +407,7 @@ function setupBudgetForms() {
   };
 }
 
-/* ---------- Fare table (settings/fares): hand-kept fares the assistant uses; defaults to the plan's transit costs ---------- */
+/* ---------- Fare table (settings/fares): fares you keep by hand; defaults to the plan's transit costs ---------- */
 let fares = null, faresDirty = false;
 function fareRows() {
   if (fares && Array.isArray(fares.rows)) return fares.rows;
@@ -435,11 +435,6 @@ function renderFares(force) {
     const save = el('button', 'btn sm', 'Save fares'); save.type = 'button';
     save.onclick = () => { faresDirty = false; db.doc('settings/fares').set({ rows: rows.filter(r => r.leg.trim()).map(r => ({ leg: String(r.leg).slice(0, 120), mode: String(r.mode || '').slice(0, 60), jpy: Math.max(0, Math.round(Number(r.jpy) || 0)), note: String(r.note || '').slice(0, 120) })), updatedAt: Date.now() }).then(() => { addLog('Updated the fare table'); toast('Fares saved.'); }).catch(handleErr); };
     acts.append(add, save);
-  }
-  if (features.assistant && canWrite) {
-    const opt = el('button', 'btn secondary sm'); opt.type = 'button'; withIcon(opt, 'chat', 'Find savings across the trip');
-    opt.onclick = () => modules.explore && modules.explore.ask('Find savings across the whole trip: nights to move between cities, day trips to swap (for example Nara for Himeji), and whether a regional rail pass beats the fares in my fare table. Give concrete changes with the money and time each saves.');
-    acts.append(opt);
   }
 }
 

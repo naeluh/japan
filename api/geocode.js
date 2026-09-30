@@ -2,7 +2,7 @@
 import { send, fail, query, getJSON, UA } from './_lib/http.js';
 import { cacheGet, cacheSet } from './_lib/store.js';
 
-/* Place name -> { found, lat, lng, name }, or null when Nominatim is down. The assistant uses this too. */
+/* Place name -> { found, lat, lng, name }, or null when Nominatim is down. */
 export async function geocode(q, near = '') {
   const key = 'geo:' + q.toLowerCase() + '|' + near;
   const hit = await cacheGet(key); if (hit) return hit;

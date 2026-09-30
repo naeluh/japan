@@ -1,9 +1,8 @@
-/* Today: the phone-first travel-day view (next stop, walk, codes, tonight's hotel), plus quick expenses and receipt scanning. */
+/* Today: the phone-first travel-day view (next stop, walk, codes, tonight's hotel), plus quick expense logging. */
 import { ctx } from './app.js';
 import { GROUPS, GROUP_DATE, TRAVELERS, TRIP } from './trip.js';
 
 const { $, el, icon, withIcon, extLink, toast } = ctx;
-const API = window.TRIP_API;
 const DAYS = GROUPS.filter(g => GROUP_DATE[g.id]);
 let pick = null;   // a day chosen with the arrows; null follows the calendar
 
@@ -127,7 +126,6 @@ function render() {
     const acts = el('div', 'add');
     const log = el('button', 'btn'); log.type = 'button'; withIcon(log, 'wallet', 'Log an expense'); log.onclick = () => openExpense({});
     acts.append(log);
-    if (ctx.features.assistant) acts.append(scanButton());
     m.append(acts); root.append(m);
   }
 }
@@ -148,7 +146,6 @@ function openExpense(pre) {
   const spL = el('label', 'field'); spL.append(el('span', null, 'For')); const sp = el('select'); [['even', 'Both of us'], ...TRAVELERS.map(t => [t, 'Only ' + t])].forEach(([v, t]) => { const o = el('option', null, t); o.value = v; sp.append(o); }); spL.append(sp);
   row2.append(catL, pbL, spL);
   f.append(row, noteL, row2);
-  if (pre.fromReceipt) f.prepend(el('p', 'slab info', 'Read from your receipt. Check the amount before saving.'));
   const save = el('button', 'btn', 'Log it'); save.type = 'submit'; save.setAttribute('form', 'expSheet');
   f.onsubmit = (ev) => {
     ev.preventDefault();
@@ -156,46 +153,10 @@ function openExpense(pre) {
     if (!(amount > 0)) { toast('Enter an amount above zero.'); a.classList.add('shake'); setTimeout(() => a.classList.remove('shake'), 300); return; }
     const data = { amount, cur: cur.value, cat: cat.value, note: note.value.trim().slice(0, 120), at: Date.now(), by: ctx.uid || null, split: sp.value };
     if (TRAVELERS.includes(pb.value)) data.paidBy = pb.value;
-    if (pre.fromReceipt) data.source = 'receipt';
     ctx.db.collection('expenses').add(data).then(() => ctx.addLog('Logged ' + ctx.fAmt(amount, data.cur) + (data.note ? ' for ' + ctx.q(data.note) : ''))).catch(ctx.handleErr);
     ctx.closeSheet(); toast('Logged.');
   };
-  ctx.openSheet({ title: pre.fromReceipt ? 'Check the receipt' : 'Log an expense', body: f, foot: [save] });
+  ctx.openSheet({ title: 'Log an expense', body: f, foot: [save] });
 }
 
-/* ---------- Receipt scan: camera -> 1600 px JPEG -> Claude vision -> prefilled sheet ---------- */
-async function downscale(file) {
-  const img = await createImageBitmap(file);
-  const k = Math.min(1, 1600 / Math.max(img.width, img.height));
-  const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
-  const b64 = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1]); fr.onerror = rej; fr.readAsDataURL(blob); });
-  return b64;
-}
-function scanButton() {
-  const label = el('label', 'btn secondary'); withIcon(label, 'camera', 'Scan a receipt');
-  const inp = el('input', 'sr'); inp.type = 'file'; inp.accept = 'image/*'; inp.setAttribute('capture', 'environment');
-  inp.onchange = async () => {
-    const file = inp.files && inp.files[0]; inp.value = ''; if (!file) return;
-    const txt = label.lastChild; const was = txt.textContent; txt.textContent = 'Reading…'; label.classList.add('busy');
-    try {
-      const image = await downscale(file);
-      const r = await API.api('/api/assistant', { method: 'POST', body: JSON.stringify({ mode: 'receipt', image, mediaType: 'image/jpeg' }) });
-      const rc = r.receipt || {};
-      if (rc.readable === false || !(rc.amount > 0)) { toast('Couldn\'t read that receipt. Enter it by hand.'); openExpense({}); }
-      else openExpense({ ...rc, fromReceipt: true });
-    } catch (e) { toast((e && e.message) || 'The receipt couldn\'t be read. Enter it by hand.'); }
-    finally { txt.textContent = was; label.classList.remove('busy'); }
-  };
-  label.append(inp);
-  return label;
-}
-
-function onMoney() {
-  const slot = $('#scanSlot'); if (!slot) return;
-  slot.textContent = '';
-  if (ctx.canWrite && ctx.features.assistant) slot.append(scanButton());
-}
-
-ctx.register('today', { render, openExpense, onMoney });
+ctx.register('today', { render, openExpense });

@@ -1,6 +1,6 @@
 # Japan trip planner
 
-Kristin and Nick's shared plan for Japan, April 1–14, 2027, running as a small web app on Vercel. It keeps the plan and the budget, pulls live data from free, open APIs, and goes looking for things on its own: better prices on the stays you've picked, and unusual places that fit the gaps in your days. It installs on a phone and keeps working without signal.
+Kristin and Nick's shared plan for Japan, April 1–14, 2027, running as a small web app on Vercel. It keeps the plan and the budget, pulls live data from free, open APIs, and goes looking for things on its own: better prices on the stays you've picked, and unusual places that fit the gaps in your days. It installs on a phone and keeps working without signal. Everything runs on free plans: Vercel Hobby, Neon's free Postgres, and keyless or free-key APIs.
 
 The look and interactions follow the Kuzic design system (Geist type, warm light and dark themes, sheets, segmented controls, a bottom dock on phones), with two trip touches: Shippori Mincho for city and chapter names, and a sakura route line.
 
@@ -9,9 +9,9 @@ The look and interactions follow the Kuzic design system (Geist type, warm light
 | Screen | What it does |
 | --- | --- |
 | **Plan** | The timeline: chapters, day cards with weather, walking times between stops (red when a walk is longer than the gap), day maps, priorities, costs, booking links and confirmation codes. Free gaps of 45 minutes or more offer **Find something nearby**. **Check opening hours** flags stops that may be closed when you plan to be there. |
-| **Today** | Phone-first travel-day view: the next stop with walking time, directions and booking code, tonight's hotel, the day's checklist, and quick expense logging or receipt scanning. Before the trip it previews April 1. |
-| **Deals** | The price watch on every stay: live Rakuten price against the plan, lowest price seen, your alert price, what shifting the stay a day earlier or later would cost, meals-included compared fairly with eating out, links to book direct, check history, and sale dates with calendar reminders. |
-| **Explore** | **Nearby**: unusual places near any stop (old shops, small museums, bathhouses, heritage sites) ranked by a uniqueness score, open at the time you pick, within a short walk. **Ask**: the trip assistant, in plain English. |
+| **Today** | Phone-first travel-day view: the next stop with walking time, directions and booking code, tonight's hotel, the day's checklist, and quick expense logging. Before the trip it previews April 1. |
+| **Deals** | The price watch on every stay: live Rakuten price against the plan, lowest price seen, your alert price, what shifting the stay a day earlier or later would cost, meals-included compared fairly with eating out, links to book direct, prefilled searches on Booking.com, Google, Jalan, Ikyu and Rakuten, check history, and sale dates with calendar reminders. |
+| **Explore** | **Nearby**: unusual places near any stop (old shops, small museums, bathhouses, heritage sites) ranked by a uniqueness score, open at the time you pick, within a short walk. **Search**: prefilled searches for the day and stop you pick: Google Maps (things to do, cafés, restaurants, old shops, bathhouses, anything you type), Tabelog, events and cherry-blossom forecasts, and hotel sites for that night. |
 | **Money** | Budget by category, biggest costs, spending log (who paid, who it was for), who owes whom, the fare table, and budget, exchange-rate and meal-cost settings. |
 
 ## Live data and where it comes from
@@ -26,7 +26,7 @@ The look and interactions follow the Kuzic design system (Geist type, warm light
 | Founding years, heritage status, fame | [Wikidata](https://www.wikidata.org) | No |
 | Hotel prices, vacancy, meal plans | [Rakuten Travel API](https://webservice.rakuten.co.jp/documentation/vacant-hotel-search) | Yes, free |
 | Alert emails | [Resend](https://resend.com) | Yes, free tier |
-| Trip assistant, receipt reading | [Claude API](https://platform.claude.com) (`claude-opus-5-5`) | Yes, paid per use |
+| Storage | [Neon](https://neon.tech) Postgres | Free plan, no card |
 
 Lookups are cached in the database (exchange rate 6 hours, weather 3 hours or 30 days, walking and pins 30 days, hotels 6 hours, places 7 days, opening hours 1 day), so the free services are called rarely.
 
@@ -35,13 +35,13 @@ Not automated: train fares and timetables. There's no free fare API for the Shin
 ## Deploy (about 15 minutes)
 
 1. **Code on GitHub, project on Vercel.** Import the repository in Vercel (**Add New → Project**), framework **Other**, no build command. Pushes to `main` deploy to production.
-2. **Storage.** In the project, open **Storage → Create Database → Upstash for Redis** (this is what Vercel KV became), pick the free plan and connect it. It adds `KV_REST_API_URL` and `KV_REST_API_TOKEN`. From a terminal: `vercel integration add upstash/upstash-kv` (it opens the browser once to accept Upstash's terms).
+2. **Storage.** Create a free project at [neon.tech](https://neon.tech) (no card) and copy its connection string into `DATABASE_URL`. The app creates its tables and loads your plan the first time it runs. (Vercel's **Storage → Neon** integration also works; it sets `DATABASE_URL` for you.) A second Neon branch makes a safe database for previews and local testing.
 3. **Settings** under **Settings → Environment Variables** (see `.env.example`):
    - `EDIT_KEY`: a long random string, the password in your edit link.
    - `VIEW_KEY`: a second random string for view-only links. With it set, the plan is private; without it, anyone with the site address can read it (not change it). The plan now holds confirmation codes and who paid what, so set it.
    - `CRON_SECRET`: a long random string. Vercel sends it with the nightly price-watch run; nothing else can trigger that run without the edit key.
    - `PUBLIC_URL`: your site address. Rakuten wants it as the referring site, and alert emails link back to it.
-   - Optional: `RAKUTEN_APP_ID` + `RAKUTEN_ACCESS_KEY` (live prices), `RESEND_API_KEY` + `ALERT_EMAIL` (email alerts), `ANTHROPIC_API_KEY` (assistant and receipts), `CONTACT_EMAIL` (OpenStreetMap services ask apps to identify themselves).
+   - Optional: `RAKUTEN_APP_ID` + `RAKUTEN_ACCESS_KEY` (live prices), `RESEND_API_KEY` + `ALERT_EMAIL` (email alerts), `CONTACT_EMAIL` (OpenStreetMap services ask apps to identify themselves).
 4. **Redeploy** so the settings take effect.
 5. **Open** `https://YOUR-SITE.vercel.app/?k=YOUR_EDIT_KEY`. The key is saved in that browser and removed from the address bar. The first edit asks your name for Recent changes.
 
@@ -62,11 +62,9 @@ Rakuten quotes the first night only, so stay totals are estimates and marked as 
 
 From a free gap on the timeline, **Find something nearby** fills in the day, stop and time window. **Add** drops the place into the gap with a start and end time; **Not for us** hides it. Your taste comes from what you rank high, check off or skip, plus what you add or dismiss in Explore.
 
-## The assistant
+## Searching sites with no open data
 
-Set `ANTHROPIC_API_KEY` to turn on **Explore → Ask** and receipt scanning. It uses `claude-opus-5-5` (override with `ANTHROPIC_MODEL`) with tools that call this site's own data: read the plan, search places, search hotels near a point on Rakuten, price a named hotel, measure a walk, find a place, and read the fare table. It names its sources and marks estimates. **Find savings across the trip** on the Money screen asks it for concrete swaps using the plan, the price watch and the fare table. Requests use Anthropic's server-side fallback for declined requests. Only the edit link can use it, since each question costs API credit.
-
-**Scan a receipt** (Today or Money) downsizes the photo on the phone, reads the total, currency, merchant and category, and opens a prefilled expense to confirm.
+Booking.com, Google Hotels, Jalan, Ikyu, Tabelog and Google Maps have no free API, so the app builds their searches for you. **Explore → Search** takes the day and stop you pick and opens Google Maps near it (presets or anything you type), Tabelog ratings, events and cherry-blossom forecasts for that date, and hotel searches for that night. Each stay on **Deals** has **Compare elsewhere**: Booking.com with your dates filled in, Google prices, and site searches on Jalan, Ikyu and Rakuten using the hotel's Japanese name. Nothing here needs a key or costs anything.
 
 ## Travel mode
 
@@ -87,24 +85,24 @@ Open the site on your phone and use **Add to Home Screen**. The app shell is cac
 ## Run it on your computer
 
 ```
-npm install               # the Anthropic SDK is the only dependency
+npm install               # the Neon driver is the only dependency
 cp .env.example .env      # set EDIT_KEY at least
 npm run dev               # http://localhost:3000/?k=YOUR_EDIT_KEY
 npm test                  # server logic and the database API (node:test)
 ```
 
-Without Redis settings the dev server keeps data in `.local-db.json` (`LOCAL_DB_FILE` moves it). `scripts/fakes.mjs` runs stand-ins for Rakuten and the Claude API (`RAKUTEN_BASE`, `ANTHROPIC_BASE_URL`) so the price watch and the assistant can be exercised without keys; `.claude/skills/trip-planner/SKILL.md` has the full local check routine.
+Without `DATABASE_URL` the dev server keeps data in `.local-db.json` (`LOCAL_DB_FILE` moves it); point it at a Neon dev branch to test against real Postgres. `scripts/fakes.mjs` runs a stand-in for Rakuten (`RAKUTEN_BASE`) so the price watch can be exercised without a key; `.claude/skills/trip-planner/SKILL.md` has the full local check routine.
 
 ## Files
 
 - `public/index.html`, `app.css`, `app.js`: the page, the design tokens and components, and the core (sync, Plan, Money, sheets, routing).
-- `public/deals.js`, `explore.js`, `today.js`: the Deals, Explore (Nearby and Ask) and Today screens.
-- `public/trip.js`: trip facts and pure helpers shared by the page and the server (days, dates, taste profile, settle-up, sale dates).
+- `public/deals.js`, `explore.js`, `today.js`: the Deals, Explore (Nearby and Search) and Today screens.
+- `public/trip.js`: trip facts and pure helpers shared by the page and the server (days, dates, search links, taste profile, settle-up, sale dates).
 - `public/shim.js`: connects the page to the API: key handling, 5-second sync, offline copy and outbox.
 - `public/sw.js`, `manifest.webmanifest`, icons: the installable offline app.
-- `api/db.js`: stores the plan in Redis. Reads need the view or edit key when `VIEW_KEY` is set; writes need the edit key.
-- `api/watch.js` (nightly price watch), `api/calendar.js` (sale-date feed), `api/discover.js` (places and opening hours), `api/assistant.js` (Claude), and `api/fx.js`, `weather.js`, `walk.js`, `geocode.js`, `hotel-price.js`, `config.js`.
-- `api/_lib/`: storage, Rakuten client, OpenStreetMap and Wikidata discovery, opening-hours parser, alert rules, calendar writer, email, and your plan as first exported (`seed.js`, loaded the first time storage is empty).
+- `api/db.js`: stores the plan in Postgres. Reads need the view or edit key when `VIEW_KEY` is set; writes need the edit key.
+- `api/watch.js` (nightly price watch), `api/calendar.js` (sale-date feed), `api/discover.js` (places and opening hours), and `api/fx.js`, `weather.js`, `walk.js`, `geocode.js`, `hotel-price.js`, `config.js`.
+- `api/_lib/`: storage (Postgres, or a local file in development), Rakuten client, OpenStreetMap and Wikidata discovery, opening-hours parser, alert rules, calendar writer, email, and your plan as first exported (`seed.js`, loaded the first time storage is empty).
 - `test/`: `npm test` checks.
 
 ## Roadmap
@@ -113,7 +111,7 @@ All four phases of the plan are built:
 
 1. **Never overpay for what you've already picked:** nightly price watch with history and alerts, flexible-date check, meals-included comparison, sale-date reminders.
 2. **Find unique places, not just famous ones:** OpenStreetMap and Wikidata discovery, uniqueness score, fits-your-gap suggestions, taste learning.
-3. **A trip assistant that does the legwork:** plain-English questions with real searches, whole-trip optimizer over a fare table you keep, opening-hours clash check.
-4. **Travel mode:** installable offline app with a Today view, receipt scanning, Kristin/Nick split.
+3. **Do the legwork:** prefilled searches on the sites that have no open data, a fare table you keep, and an opening-hours clash check. (A Claude assistant was built first and removed to keep the app free; it's in the git history, commit 2ad3c00.)
+4. **Travel mode:** installable offline app with a Today view and a Kristin/Nick split.
 
 Next, if they earn it: more price sources once a partner program accepts the site, taste learning that weighs time of day, and push notifications instead of email.

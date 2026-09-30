@@ -125,6 +125,23 @@ API.askName = () => new Promise(resolve => {
   openSheet({ title: 'What should we call you?', body: f, foot: [ok], onClose: () => { if (!done) resolve(''); } });
 });
 
+/* ---------- Keys: switch this browser to another link, and explain view-only instead of dead controls ---------- */
+function useKey(v) {
+  let k = String(v || '').trim();
+  try { k = new URL(k).searchParams.get('k') || ''; } catch (e) { /* a bare key */ }
+  if (!k) { toast('That link doesn\'t have a key in it (the part after ?k=).'); return; }
+  location.href = location.pathname + '?k=' + encodeURIComponent(k) + location.hash;
+}
+function needEdit() {
+  const f = el('form', 'lock-form'); f.id = 'keyForm';
+  const inp = el('input', 'input'); inp.name = 'link'; inp.autocomplete = 'off'; inp.placeholder = 'https://…/?k=…'; inp.setAttribute('aria-label', 'The edit link');
+  f.append(inp); f.onsubmit = (ev) => { ev.preventDefault(); useKey(inp.value); };
+  const body = el('div'); body.append(el('p', 'lead', 'This browser opened the view-only link, so it can look but not change anything. Open the edit link on this device once, or paste it here.'), f);
+  body.firstChild.style.marginTop = '0';
+  const open = el('button', 'btn', 'Open'); open.type = 'submit'; open.setAttribute('form', 'keyForm');
+  openSheet({ title: 'This is the view-only link', body, foot: [open] });
+}
+
 /* ---------- Routing: #/plan, #/money, ... (old #c1, #d03, #budget anchors still work) ---------- */
 const SCREENS = [
   { id: 'plan', label: 'Plan', icon: 'route' },
@@ -759,16 +776,23 @@ function renderGroup(g) {
   if (add.childNodes.length) wrap.append(add);
   return wrap;
 }
+/* The done check, inside a 44 px tap target. View-only: the tap explains itself instead of doing nothing. */
+function checkBox(i) {
+  const hit = el('label', 'checkhit');
+  const cb = el('input', 'check'); cb.type = 'checkbox'; cb.checked = !!i.done;
+  cb.setAttribute('aria-label', (i.done ? 'Mark not done: ' : 'Mark done: ') + (i.title || ''));
+  cb.onchange = () => {
+    if (!canWrite) { cb.checked = !cb.checked; needEdit(); return; }
+    write(i.id, cb.checked ? { done: true, doneBy: uid || null, doneAt: Date.now() } : { done: false, doneBy: null, doneAt: null },
+      (cb.checked ? 'Marked ' + q(i.title) + ' done' : 'Marked ' + q(i.title) + ' not done'));
+  };
+  hit.append(cb); return hit;
+}
 function renderItem(i, state) {
   const li = el('li', 'item p-' + (i.priority || 'medium') + (i.done ? ' done' : '') + (i.kind === 'travel' ? ' travel' : '') + (state === 'now' ? ' now' : '') + (i.disabled ? ' skipped' : ''));
   li.dataset.id = i.id;
   li.append(el('span', 'stripe'));
-  const cb = el('input', 'check'); cb.type = 'checkbox'; cb.checked = !!i.done; cb.disabled = !canWrite;
-  cb.setAttribute('aria-label', (i.done ? 'Mark not done: ' : 'Mark done: ') + (i.title || ''));
-  cb.onchange = () => write(i.id,
-    cb.checked ? { done: true, doneBy: uid || null, doneAt: Date.now() } : { done: false, doneBy: null, doneAt: null },
-    (cb.checked ? 'Marked ' + q(i.title) + ' done' : 'Marked ' + q(i.title) + ' not done'));
-  li.append(cb);
+  li.append(checkBox(i));
   const body = el('div', 'body');
   const tr = timeRange(i);
   if (tr || i.kind === 'travel' || state || i.disabled) {
@@ -822,11 +846,11 @@ function renderItem(i, state) {
   const side = el('div', 'side');
   const pr = el('div', 'prio'); pr.setAttribute('role', 'group'); pr.setAttribute('aria-label', 'Priority');
   PRIOS.forEach(p => {
-    const b = el('button', p); b.type = 'button'; b.disabled = !canWrite;
+    const b = el('button', p); b.type = 'button';
     b.setAttribute('aria-pressed', String(i.priority === p));
     b.setAttribute('aria-label', PLABEL[p] + ' priority'); b.title = PLABEL[p];
     b.append(el('span', 'sw ' + p));
-    b.onclick = () => { if (i.priority !== p) write(i.id, { priority: p }, 'Set ' + q(i.title) + ' to ' + PLABEL[p]); };
+    b.onclick = () => { if (!canWrite) return needEdit(); if (i.priority !== p) write(i.id, { priority: p }, 'Set ' + q(i.title) + ' to ' + PLABEL[p]); };
     pr.append(b);
   });
   side.append(pr);
@@ -1172,7 +1196,7 @@ export const ctx = {
   get items() { return items; }, live, get db() { return db; }, get uid() { return uid; }, get canWrite() { return canWrite; }, get features() { return features; },
   get settings() { return settings; }, get expenses() { return expenses; }, get loaded() { return loaded; }, get modules() { return modules; },
   write, create, addLog, handleErr, render, go, register: (id, m) => { modules[id] = m; buildNav(); route(); },
-  gapHooks, itemHooks, openEditor, flashItem, hasPin, mins, fmt12, dur, byTime, tokyoNow, timeRange, mapsUrl, routeUrl, mapQuery,
+  gapHooks, itemHooks, openEditor, checkBox, needEdit, flashItem, hasPin, mins, fmt12, dur, byTime, tokyoNow, timeRange, mapsUrl, routeUrl, mapQuery,
   toUSD, fUSD, fJPY, fAmt, hasCost, rate, addDaysISO, fmtOpens, wxText, walkLegFor, linkList, ago, CATS
 };
 export function watchDoc(id) { return docsOf('watch/' + id); }
@@ -1190,13 +1214,7 @@ async function boot() {
   if (!db) { // no valid key: say so on every screen instead of leaving them blank
     setStatus(['This link doesn\'t include a valid trip key. Ask whoever shared the plan for the full link.']);
     $('#lockView').hidden = false; $('#shareBtn').hidden = true;
-    $('#lockForm').onsubmit = (ev) => {
-      ev.preventDefault();
-      const v = ev.target.link.value.trim(); let k = v;
-      try { k = new URL(v).searchParams.get('k') || ''; } catch (e) { /* a bare key */ }
-      if (!k) { toast('That link doesn\'t have a key in it (the part after ?k=).'); return; }
-      location.href = location.pathname + '?k=' + encodeURIComponent(k) + location.hash;
-    };
+    $('#lockForm').onsubmit = (ev) => { ev.preventDefault(); useKey(ev.target.link.value); };
     return;
   }
   if (user) {

@@ -111,10 +111,7 @@ function render() {
   list.forEach(i => {
     const li = el('li' , i.done ? 'done' : '');
     if (i === nextItem) li.classList.add('current');
-    const cb = el('input', 'check'); cb.type = 'checkbox'; cb.checked = !!i.done; cb.disabled = !ctx.canWrite;
-    cb.setAttribute('aria-label', (i.done ? 'Mark not done: ' : 'Mark done: ') + (i.title || ''));
-    cb.onchange = () => ctx.write(i.id, cb.checked ? { done: true, doneBy: ctx.uid || null, doneAt: Date.now() } : { done: false, doneBy: null, doneAt: null }, (cb.checked ? 'Marked ' : 'Marked not done: ') + ctx.q(i.title) + (cb.checked ? ' done' : ''));
-    li.append(cb, el('span', 'num t', i.start ? ctx.fmt12(i.start) : ''), el('span', 'grow', i.title));
+    li.append(ctx.checkBox(i), el('span', 'num t', i.start ? ctx.fmt12(i.start) : ''), el('span', 'grow', i.title));
     ul.append(li);
   });
   rest.append(ul);

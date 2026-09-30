@@ -293,9 +293,10 @@ li.item.travel .stripe{background:repeating-linear-gradient(180deg,var(--fg-fain
 input.check{appearance:none;-webkit-appearance:none;margin:1px 0 0;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--fg-faint);background:var(--bg);cursor:pointer;
   transition:background var(--dur-fast),border-color var(--dur-fast),transform var(--dur-fast) var(--ease-overshoot)}
 input.check:hover{border-color:var(--fg-muted)}
-input.check:checked{background:var(--success) var(--check-img) center/13px no-repeat;border-color:var(--success);animation:pop var(--dur-base) var(--ease-overshoot)}
-input.check:disabled{cursor:default;opacity:.7}
-@keyframes pop{0%{transform:scale(.6)}60%{transform:scale(1.12)}100%{transform:scale(1)}}
+input.check:checked{background:var(--success) var(--check-img) center/13px no-repeat;border-color:var(--success)}
+/* 44 px tap target around the 22 px circle; the negative margin keeps the row layout unchanged */
+label.checkhit{display:grid;place-items:center;width:44px;height:44px;margin:-10px -10px -10px -10px;cursor:pointer;-webkit-tap-highlight-color:transparent;position:relative;z-index:1}
+label.checkhit input.check{margin:0}
 .body{min-width:0}
 .time{font:500 12px/1.5 var(--font-mono);color:var(--fg-muted);display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;letter-spacing:0}
 .time .clock{color:var(--fg);font-weight:500}
@@ -535,7 +536,8 @@ ul.dayline li:first-child{border-top:0}
 ul.dayline .t{width:72px;flex:none;font:500 12px var(--font-mono);color:var(--fg-muted)}
 ul.dayline li.done .grow{text-decoration:line-through;color:var(--fg-muted)}
 ul.dayline li.current .grow{font-weight:600}
-ul.dayline input.check{width:20px;height:20px;margin:0;flex:none}
+ul.dayline input.check{width:20px;height:20px;margin:0}
+ul.dayline label.checkhit{flex:none;margin:-12px -12px -12px -12px}
 label.btn{position:relative}
 label.btn.busy{opacity:.7;pointer-events:none}
 

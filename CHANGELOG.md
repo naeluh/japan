@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.1 (2026-09-30)
+
+- Checkboxes and priority dots on the view-only link no longer do nothing: a tap explains that this browser has the view-only link and offers a box to paste the edit link.
+- Checkboxes get a 44 px tap area on phones; the check no longer replays its pop animation on every refresh.
+
 ## 2.1.0 (2026-09-30)
 
 Everything now runs on free plans.

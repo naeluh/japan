@@ -1,0 +1,13 @@
+{
+  "name": "japan-trip-planner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared Japan trip planner with live prices, weather and walking times.",
+  "scripts": {
+    "dev": "node dev-server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

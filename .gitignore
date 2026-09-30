@@ -1,0 +1,4 @@
+.env
+.local-db.json
+node_modules
+.vercel

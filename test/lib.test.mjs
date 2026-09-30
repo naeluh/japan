@@ -1,0 +1,111 @@
+// Pure-logic checks for the server libraries. Run: npm test
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { openState, parseHours } from '../api/_lib/hours.js';
+import { score, rank, classify, yearOf } from '../api/_lib/osm.js';
+import { applyCheck, flexFrom, opensAt, dueReminders } from '../api/_lib/alerts.js';
+import { toICS } from '../api/_lib/ics.js';
+import { summarizePlans } from '../api/_lib/rakuten.js';
+
+test('opening hours: common forms', () => {
+  // 2027-04-06 is a Tuesday
+  assert.equal(openState('24/7', '2027-04-06', 600, 660), 'open');
+  assert.equal(openState('Mo-Su 10:00-18:00; Tu off', '2027-04-06', 600, 660), 'closed');
+  assert.equal(openState('Mo-Su 10:00-18:00; Tu off', '2027-04-07', 600, 660), 'open');
+  assert.equal(openState('Tu-Su 10:00-12:00,13:00-17:00', '2027-04-06', 690, 750), 'partial');
+  assert.equal(openState('Mo-Fr 09:00-17:00', '2027-04-10', 600, 660), 'closed'); // Saturday not listed
+  assert.equal(openState('10:00-18:00', '2027-04-10', 1050, 1110), 'partial');
+  assert.equal(openState('Mo-Sa 10:00-19:00, Su 10:00-18:00', '2027-04-11', 1065, 1100), 'partial');
+  assert.equal(openState('Mar-Nov Mo-Su 09:00-17:00', '2027-04-06', 600, 660), 'open');
+  assert.equal(openState('Mar-Nov Mo-Su 09:00-17:00', '2027-12-06', 600, 660), 'closed');
+  assert.equal(openState('18:00-02:00', '2027-04-06', 1380, 1440), 'open');
+  assert.equal(openState('Mo-Fr 09:00-17:00; PH off', '2027-04-06', 600, 660), 'unknown');
+  assert.equal(openState('sunrise-sunset', '2027-04-06', 600, 660), 'unknown');
+  assert.equal(openState('', '2027-04-06', 600, 660), 'unknown');
+  assert.equal(parseHours('by appointment'), null);
+});
+
+test('discovery: classify and year parsing', () => {
+  assert.equal(classify({ amenity: 'public_bath' }), 'bathhouse');
+  assert.equal(classify({ amenity: 'place_of_worship', religion: 'shinto' }), 'shrine');
+  assert.equal(classify({ shop: 'stationery' }), 'stationery');
+  assert.equal(yearOf('+1716-00-00T00:00:00Z'), 1716);
+  assert.equal(yearOf('1905-04'), 1905);
+  assert.equal(yearOf('c. 1900'), null);
+});
+
+const P = (o) => ({ osm: 'node/' + Math.random(), lat: 35.68, lng: 139.77, kind: 'temple', name: 'x', heritage: [], year: null, sitelinks: null, attraction: false, hours: '', ...o });
+test('discovery: old, designated, little-known and rare-here outrank the famous temple', () => {
+  const famous = P({ name: 'Famous temple', sitelinks: 60, attraction: true, heritage: ['UNESCO World Heritage'] });
+  const teahouse = P({ name: 'Old teahouse', kind: 'tea', year: 1716, sitelinks: 2 });
+  const temples = [1, 2, 3, 4, 5].map(n => P({ name: 'Temple ' + n }));
+  const ranked = score([famous, teahouse, ...temples], { now: 2027 });
+  assert.equal(ranked[0].name, 'Old teahouse');
+  assert.ok(ranked[0].reasons.includes('Since 1716'));
+  assert.ok(ranked[0].reasons.includes('Only tea shop nearby'));
+  assert.ok(ranked.every(p => p.score >= 0 && p.score <= 100));
+  const liked = score([P({ name: 'a', kind: 'stationery' }), P({ name: 'b', kind: 'museum' })], { taste: { museum: 6 } });
+  assert.equal(liked[0].name, 'b');
+  assert.ok(liked[0].reasons.includes('You like museums'));
+});
+
+test('discovery: rank filters by walking range, closed places and dismissals', () => {
+  const near = P({ name: 'near', lat: 35.6801, lng: 139.7701, hours: 'Mo-Su 10:00-18:00' });
+  const closed = P({ name: 'closed', lat: 35.6802, lng: 139.7702, hours: 'Tu off' });
+  const far = P({ name: 'far', lat: 35.70, lng: 139.80 });
+  const gone = P({ osm: 'node/9', name: 'dismissed', lat: 35.6801, lng: 139.7701 });
+  const r = rank([near, closed, far, gone], { lat: 35.68, lng: 139.77, maxWalk: 10, date: '2027-04-06', from: 660, to: 720, exclude: ['node/9'] });
+  assert.deepEqual(r.map(p => p.name), ['near']);
+  assert.equal(r[0].open, 'open');
+  assert.ok(r[0].walkMin >= 1);
+});
+
+test('price watch: alerts for target crossing, reopening and a new low', () => {
+  const base = { found: true, available: true, estimateTotal: 60000, firstNight: 30000, nights: 2, hotelNo: '1', hotelName: 'H' };
+  const first = applyCheck(null, base, { title: 'Ryokan', target: 50000, day: '2026-10-01' });
+  assert.equal(first.alerts.length, 0);
+  assert.deepEqual(first.doc.low, { total: 60000, d: '2026-10-01' });
+  const sold = applyCheck(first.doc, { found: true, available: false, nights: 2 }, { title: 'Ryokan', target: 50000, day: '2026-10-02' });
+  assert.equal(sold.alerts.length, 0);
+  assert.equal(sold.doc.latest.available, false);
+  const back = applyCheck(sold.doc, { ...base, estimateTotal: 48000 }, { title: 'Ryokan', target: 50000, day: '2026-10-03' });
+  assert.deepEqual(back.alerts.map(a => a.kind).sort(), ['low', 'open', 'target']);
+  const again = applyCheck(back.doc, { ...base, estimateTotal: 47500 }, { title: 'Ryokan', target: 50000, day: '2026-10-04' });
+  assert.equal(again.alerts.length, 0, 'still under target and under 3% lower: no repeat alert');
+  assert.equal(again.doc.history.length, 4);
+  assert.equal(again.doc.alerts.length, 3);
+});
+
+test('price watch: flexible dates and sale reminders', () => {
+  const f = flexFrom({ estimateTotal: 60000 }, { found: true, available: true, estimateTotal: 42000 }, { found: true, available: false });
+  assert.equal(f.earlier.diff, -18000);
+  assert.equal(f.later.total, null);
+  assert.equal(opensAt('2027-02-05T10:00'), Date.parse('2027-02-05T01:00:00Z'));
+  assert.equal(opensAt('2027-03-15'), Date.parse('2027-03-14T15:00:00Z'));
+  assert.equal(opensAt('Feb 5'), null);
+  const now = Date.parse('2027-02-04T12:00:00Z');
+  const due = dueReminders([{ id: 'a', opens: '2027-02-05T10:00' }, { id: 'b', opens: '2027-02-05T10:00', done: true }, { id: 'c', opens: '2027-03-15' }, { id: 'd', opens: '2027-02-05T10:00' }], { d: 1 }, now);
+  assert.deepEqual(due.map(x => x.i.id), ['a']);
+});
+
+test('calendar: valid ICS with escaping, timed and all-day events', () => {
+  const s = toICS([{ uid: 'b09', title: 'Chichu Art Museum, Sat Apr 10', opens: '2027-02-05T10:00', detail: 'No refunds; be on time', url: 'https://example.com' },
+    { uid: 'b16', title: 'Skyliner', opens: '2027-03-15' }], { now: Date.parse('2026-10-01T00:00:00Z') });
+  assert.ok(s.startsWith('BEGIN:VCALENDAR\r\n'));
+  assert.ok(s.includes('DTSTART:20270205T010000Z'));
+  assert.ok(s.includes('DTSTART;VALUE=DATE:20270315\r\nDTEND;VALUE=DATE:20270316'));
+  assert.ok(s.includes('SUMMARY:Sale opens: Chichu Art Museum\\, Sat Apr 10'));
+  assert.ok(s.includes('No refunds\\; be on time'));
+  assert.ok(s.split('\r\n').every(l => l.length <= 75));
+  assert.equal((s.match(/BEGIN:VEVENT/g) || []).length, 2);
+});
+
+test('rakuten: plan summary picks cheapest, with-meals and room-only plans', () => {
+  const room = (name, total, dinner, breakfast) => ({ roomInfo: [{ roomBasicInfo: { planName: name, withDinnerFlag: dinner, withBreakfastFlag: breakfast } }, { dailyCharge: { total } }] });
+  const json = { hotels: [[{ hotelBasicInfo: { hotelName: 'Ryokan', planListUrl: 'https://x' } }, room('2 meals', 58000, 1, 1), room('Room only', 35000, 0, 0), room('Breakfast', 39000, 0, 1)]] };
+  const s = summarizePlans(json);
+  assert.equal(s.info.hotelName, 'Ryokan');
+  assert.deepEqual(s.plans.map(p => p.firstNight), [35000, 39000, 58000]);
+  assert.equal(s.meals.withMeals.firstNight, 58000);
+  assert.equal(s.meals.roomOnly.firstNight, 35000);
+});

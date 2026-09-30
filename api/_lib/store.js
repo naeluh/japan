@@ -23,36 +23,40 @@ async function pipeline(cmds) {
 }
 
 // ---------- local file store (dev only; Vercel's filesystem is read-only) ----------
-const LOCAL = path.join(process.cwd(), '.local-db.json');
+const LOCAL = process.env.LOCAL_DB_FILE || path.join(process.cwd(), '.local-db.json');
 let mem = null;
 function loadLocal() {
   if (mem) return mem;
   try { mem = JSON.parse(fs.readFileSync(LOCAL, 'utf8')); }
   catch { mem = { docs: { ...seed }, rev: 1, changes: [], cache: {} }; saveLocal(); }
+  if (!mem.epoch) { mem.epoch = String(Date.now()); saveLocal(); }
   return mem;
 }
 function saveLocal() { try { fs.writeFileSync(LOCAL, JSON.stringify(mem)); } catch { /* read-only FS: keep in memory */ } }
 
 // ---------- seeding ----------
-let seeded = false;
+// The seeded key holds an epoch; clients compare it so a reset store forces a full reload instead of a stale delta.
+let epoch = null;
 async function ensureSeed() {
-  if (!hasRedis || seeded) return;
-  const first = await redis(['SET', `${P}:seeded`, '1', 'NX']);
+  if (!hasRedis || epoch) return epoch;
+  const mine = String(Date.now());
+  const first = await redis(['SET', `${P}:seeded`, mine, 'NX']);
   if (first === 'OK') {
     const hset = ['HSET', `${P}:docs`];
     for (const [k, v] of Object.entries(seed)) hset.push(k, JSON.stringify(v));
     await pipeline([hset, ['SET', `${P}:rev`, '1']]);
-  }
-  seeded = true;
+    epoch = mine;
+  } else epoch = String(await redis(['GET', `${P}:seeded`]));
+  return epoch;
 }
 
 export async function readAll() {
-  if (!hasRedis) { const m = loadLocal(); return { rev: m.rev, docs: m.docs }; }
-  await ensureSeed();
+  if (!hasRedis) { const m = loadLocal(); return { rev: m.rev, epoch: m.epoch, docs: m.docs }; }
+  const ep = await ensureSeed();
   const [flat, rev] = await pipeline([['HGETALL', `${P}:docs`], ['GET', `${P}:rev`]]);
   const docs = {};
   for (let i = 0; i < (flat || []).length; i += 2) docs[flat[i]] = JSON.parse(flat[i + 1]);
-  return { rev: Number(rev) || 1, docs };
+  return { rev: Number(rev) || 1, epoch: ep, docs };
 }
 
 export async function readSince(since) {
@@ -60,9 +64,9 @@ export async function readSince(since) {
     const m = loadLocal();
     const paths = [...new Set(m.changes.filter(c => c.rev > since).map(c => c.path))];
     const docs = {}; for (const p of paths) docs[p] = m.docs[p] ?? null;
-    return { rev: m.rev, docs };
+    return { rev: m.rev, epoch: m.epoch, docs };
   }
-  await ensureSeed();
+  const ep = await ensureSeed();
   const [rev, paths] = await pipeline([['GET', `${P}:rev`], ['ZRANGEBYSCORE', `${P}:changes`, `(${since}`, '+inf']]);
   const uniq = [...new Set(paths || [])];
   const docs = {};
@@ -70,7 +74,7 @@ export async function readSince(since) {
     const vals = await redis(['HMGET', `${P}:docs`, ...uniq]);
     uniq.forEach((p, i) => { docs[p] = vals[i] == null ? null : JSON.parse(vals[i]); });
   }
-  return { rev: Number(rev) || 1, docs };
+  return { rev: Number(rev) || 1, epoch: ep, docs };
 }
 
 export async function getDoc(p) {

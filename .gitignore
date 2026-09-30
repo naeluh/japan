@@ -2,3 +2,5 @@
 .local-db.json
 node_modules
 .vercel
+.env*
+!.env.example

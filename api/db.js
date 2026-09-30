@@ -1,4 +1,4 @@
-// GET /api/db?since=REV  -> { rev, docs: {path: doc|null}, full? }
+// GET /api/db?since=REV&epoch=E  -> { rev, epoch, docs: {path: doc|null}, full? }
 // POST /api/db { op: "set"|"update"|"delete", path, data }  (needs the edit key)
 import { readAll, readSince, getDoc, writeDoc } from './_lib/store.js';
 import { send, fail, access, query, body } from './_lib/http.js';
@@ -27,7 +27,9 @@ export default async function handler(req, res) {
       const since = Number(query(req).since || 0);
       if (!since) { const all = await readAll(); return send(res, 200, { ...all, full: true }); }
       const ch = await readSince(since);
-      if (since < ch.rev - 19000) { const all = await readAll(); return send(res, 200, { ...all, full: true }); }
+      // Full reload when the client is too far behind, ahead of the store, or holds docs from a store that was reset.
+      const stale = since < ch.rev - 19000 || since > ch.rev || (query(req).epoch && query(req).epoch !== ch.epoch);
+      if (stale) { const all = await readAll(); return send(res, 200, { ...all, full: true }); }
       return send(res, 200, ch);
     }
     if (req.method === 'POST') {

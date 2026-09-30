@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { openState, parseHours } from '../api/_lib/hours.js';
-import { score, rank, classify, yearOf } from '../api/_lib/osm.js';
+import { score, rank, classify, yearOf, isChain } from '../api/_lib/osm.js';
 import { applyCheck, flexFrom, opensAt, dueReminders } from '../api/_lib/alerts.js';
 import { toICS } from '../api/_lib/ics.js';
 import { summarizePlans } from '../api/_lib/rakuten.js';
@@ -19,13 +19,18 @@ test('opening hours: common forms', () => {
   assert.equal(openState('Mar-Nov Mo-Su 09:00-17:00', '2027-04-06', 600, 660), 'open');
   assert.equal(openState('Mar-Nov Mo-Su 09:00-17:00', '2027-12-06', 600, 660), 'closed');
   assert.equal(openState('18:00-02:00', '2027-04-06', 1380, 1440), 'open');
-  assert.equal(openState('Mo-Fr 09:00-17:00; PH off', '2027-04-06', 600, 660), 'unknown');
+  assert.equal(openState('Mo-Fr 09:00-17:00; PH off', '2027-04-06', 600, 660), 'open', 'no public holidays during the trip');
+  assert.equal(openState('Mo-Su,PH 10:00-19:00; Dec 31 10:00-17:30', '2027-04-06', 600, 660), 'open');
+  assert.equal(openState('Mo-Su,PH 10:00-19:00; Dec 31 10:00-17:30', '2027-12-31', 1050, 1100), 'closed');
   assert.equal(openState('sunrise-sunset', '2027-04-06', 600, 660), 'unknown');
   assert.equal(openState('', '2027-04-06', 600, 660), 'unknown');
   assert.equal(parseHours('by appointment'), null);
 });
 
-test('discovery: classify and year parsing', () => {
+test('discovery: classify, chains and year parsing', () => {
+  assert.equal(classify({ amenity: 'place_of_worship', religion: 'christian' }), 'worship');
+  assert.equal(isChain({ shop: 'stationery', brand: 'Loft' }), true);
+  assert.equal(isChain({ shop: 'stationery' }), false);
   assert.equal(classify({ amenity: 'public_bath' }), 'bathhouse');
   assert.equal(classify({ amenity: 'place_of_worship', religion: 'shinto' }), 'shrine');
   assert.equal(classify({ shop: 'stationery' }), 'stationery');
@@ -47,6 +52,7 @@ test('discovery: old, designated, little-known and rare-here outrank the famous 
   const liked = score([P({ name: 'a', kind: 'stationery' }), P({ name: 'b', kind: 'museum' })], { taste: { museum: 6 } });
   assert.equal(liked[0].name, 'b');
   assert.ok(liked[0].reasons.includes('You like museums'));
+  assert.ok(score([P({ name: 's', kind: 'stationery' })], { taste: { stationery: 3 } })[0].reasons.includes('You like stationery'));
 });
 
 test('discovery: rank filters by walking range, closed places and dismissals', () => {

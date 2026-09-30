@@ -4,13 +4,15 @@ import { getJSON, UA } from './http.js';
 import { cacheGet, cacheSet } from './store.js';
 import { openState } from './hours.js';
 
-const OVERPASS = 'https://overpass-api.de/api/interpreter';
+// Public Overpass instances are often busy; try the next one on 429/5xx/timeouts.
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://z.overpass-api.de/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
 
-// kind -> [label, base weight]. Small, specific, old things score above the big temples everyone visits.
+// kind -> [label, base weight, plural]. Small, specific, old things score above the big temples everyone visits.
 export const KINDS = {
-  bathhouse: ['Bathhouse', 12], stationery: ['Stationery', 10], craft: ['Craft workshop', 10], antiques: ['Antiques', 8],
-  tea: ['Tea shop', 8], sweets: ['Sweets shop', 6], books: ['Bookshop', 6], museum: ['Museum', 8], gallery: ['Gallery', 6],
-  garden: ['Garden', 6], historic: ['Historic site', 8], temple: ['Temple', 4], shrine: ['Shrine', 4], other: ['Place', 2]
+  bathhouse: ['Bathhouse', 12, 'bathhouses'], stationery: ['Stationery shop', 10, 'stationery'], craft: ['Craft workshop', 10, 'craft workshops'],
+  antiques: ['Antiques', 8, 'antiques'], tea: ['Tea shop', 8, 'tea shops'], sweets: ['Sweets shop', 6, 'sweets shops'], books: ['Bookshop', 6, 'bookshops'],
+  museum: ['Museum', 8, 'museums'], gallery: ['Gallery', 6, 'galleries'], garden: ['Garden', 6, 'gardens'], historic: ['Historic site', 8, 'historic sites'],
+  temple: ['Temple', 4, 'temples'], shrine: ['Shrine', 4, 'shrines'], worship: ['Place of worship', 4, 'places of worship'], other: ['Place', 2, 'places']
 };
 
 export function classify(t) {
@@ -24,7 +26,7 @@ export function classify(t) {
   if (t.tourism === 'museum') return 'museum';
   if (t.tourism === 'gallery' || t.shop === 'art') return 'gallery';
   if (t.leisure === 'garden') return 'garden';
-  if (t.amenity === 'place_of_worship') return t.religion === 'shinto' ? 'shrine' : 'temple';
+  if (t.amenity === 'place_of_worship') return t.religion === 'shinto' ? 'shrine' : t.religion === 'buddhist' ? 'temple' : 'worship';
   if (t.historic) return 'historic';
   return 'other';
 }
@@ -45,11 +47,20 @@ nwr${a}["heritage"]["name"];
 }
 
 async function overpass(q) {
-  const r = await getJSON(OVERPASS, { method: 'POST', headers: { 'User-Agent': UA, 'content-type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(q) }, 28000);
-  if (!r.ok || !r.json || !Array.isArray(r.json.elements)) throw new Error('Overpass unavailable (' + r.status + ')');
-  return r.json.elements;
+  let last = '';
+  for (const url of OVERPASS) {
+    try {
+      const r = await getJSON(url, { method: 'POST', headers: { 'User-Agent': UA, 'content-type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(q) }, 20000);
+      if (r.ok && r.json && Array.isArray(r.json.elements)) return r.json.elements;
+      last = url + ' ' + r.status;
+      if (r.status && r.status < 429 && r.status !== 408) break; // a bad query won't work elsewhere either
+    } catch (e) { last = url + ' ' + (e.name === 'AbortError' ? 'timeout' : e.message); }
+  }
+  throw new Error('Overpass unavailable (' + last + ')');
 }
 
+// Chains and brand stores are the opposite of what discovery is for.
+export const isChain = (t) => !!(t.brand || t['brand:wikidata'] || t['brand:en']);
 export function yearOf(v) { const m = /^[+-]?(\d{3,4})/.exec(String(v || '').trim()); return m ? Number(m[1]) : null; }
 
 async function wikidata(ids) {
@@ -91,7 +102,7 @@ export async function nearby(lat, lng, r) {
   const places = els.map(e => {
     const t = e.tags || {}; const c = e.center || e;
     return { osm: e.type + '/' + e.id, tags: t, lat: c.lat, lng: c.lon };
-  }).filter(p => p.tags.name && isFinite(p.lat) && isFinite(p.lng) && !seen.has(p.tags.name) && seen.add(p.tags.name));
+  }).filter(p => p.tags.name && !isChain(p.tags) && isFinite(p.lat) && isFinite(p.lng) && !seen.has(p.tags.name) && seen.add(p.tags.name));
   const qids = [...new Set(places.map(p => p.tags.wikidata).filter(q => /^Q\d+$/.test(q || '')))].slice(0, 100);
   const wd = qids.length ? await wikidata(qids) : {};
   const desIds = [...new Set(Object.values(wd).flatMap(w => w.designations))].slice(0, 100);
@@ -131,7 +142,7 @@ export function score(places, { taste = {}, now = new Date().getUTCFullYear() } 
     const years = p.year ? now - p.year : 0;
     if (years >= 30) { s += Math.min(35, 12 + 23 * Math.log(years / 30) / Math.log(20)); reasons.push('Since ' + p.year); }
     if (p.heritage.length) { s += p.heritage.some(h => h.startsWith('UNESCO')) ? 25 : 20; reasons.push(p.heritage[0]); }
-    const [label, base] = KINDS[p.kind] || KINDS.other;
+    const [label, base, plural] = KINDS[p.kind] || KINDS.other;
     s += base;
     const share = counts[p.kind] / places.length;
     s += 15 * (1 - share);
@@ -142,7 +153,7 @@ export function score(places, { taste = {}, now = new Date().getUTCFullYear() } 
     else if (p.sitelinks > 40) s -= 5;
     if (p.attraction) s -= 4;
     const tw = Number(taste[p.kind]) || 0;
-    if (tw) { s += Math.max(-10, Math.min(10, tw * 1.5)); if (tw > 0) reasons.push('You like ' + label.toLowerCase() + 's'); }
+    if (tw) { s += Math.max(-10, Math.min(10, tw * 1.5)); if (tw > 0) reasons.push('You like ' + plural); }
     return { ...p, label, score: Math.max(0, Math.min(100, Math.round(s))), reasons };
   }).sort((a, b) => b.score - a.score);
 }

@@ -1,6 +1,7 @@
 // OpenStreetMap opening_hours -> is it open for a visit? Handles the common forms:
 //   "24/7", "Mo-Fr 09:00-17:00; Sa 10:00-16:00; Su off", "10:00-18:00", "Tu-Su 10:00-12:00,13:00-17:00", "Mar-Nov Mo-Su 09:00-17:00".
-// ponytail: subset of the spec; anything else (week numbers, holidays, sunrise, comments) answers "unknown" rather than guessing.
+//   plus "Dec 31 10:00-17:30" date rules; PH/SH rules are skipped because no Japanese holiday falls on the trip (Apr 1-14).
+// ponytail: subset of the spec; anything else (week numbers, sunrise, comments) answers "unknown" rather than guessing.
 const DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const hm = (s) => { const m = /^(\d{1,2}):(\d{2})$/.exec(s); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
@@ -31,10 +32,14 @@ export function parseHours(str) {
   // "Mo-Sa 10:00-19:00, Su 10:00-18:00": a comma after a time starts another rule
   for (const raw of s.replace(/(\d:\d\d\+?),\s*(?=(Mo|Tu|We|Th|Fr|Sa|Su)\b)/g, '$1;').split(';').map(x => x.trim()).filter(Boolean)) {
     const toks = raw.replace(/\s*,\s*/g, ',').split(/\s+/);
-    let months = null, days = null;
-    if (toks[0] && MONTHS.includes(toks[0].split(/[-,]/)[0])) { months = selector(toks.shift(), MONTHS); if (!months) return null; }
-    if (toks[0] && /^(Mo|Tu|We|Th|Fr|Sa|Su)/.test(toks[0])) { days = selector(toks.shift(), DAYS); if (!days) return null; }
-    if (toks[0] === 'PH' || toks[0] === 'SH') return null;
+    let months = null, days = null, mday = null;
+    if (toks[0] && MONTHS.includes(toks[0].split(/[-,]/)[0])) {
+      months = selector(toks.shift(), MONTHS); if (!months) return null;
+      if (/^\d{1,2}$/.test(toks[0] || '')) mday = Number(toks.shift()); // "Dec 31 10:00-17:30"
+    }
+    // Public/school holiday selectors: none fall inside this trip, so a holiday-only rule never applies and "Mo-Su,PH" means Mo-Su.
+    if (toks[0] && /^(PH|SH)$/.test(toks[0])) continue;
+    if (toks[0] && /^(Mo|Tu|We|Th|Fr|Sa|Su)/.test(toks[0])) { days = selector(toks.shift().replace(/,?(PH|SH)\b/g, ''), DAYS); if (!days) return null; }
     const t = toks.join(' ');
     let spans;
     if (t === 'off' || t === 'closed') spans = 'off';
@@ -50,7 +55,7 @@ export function parseHours(str) {
         spans.push([a, b]);
       }
     }
-    rules.push({ months, days, spans });
+    rules.push({ months, days, mday, spans });
   }
   return rules.length ? rules : null;
 }
@@ -64,6 +69,7 @@ export function openState(str, dateISO, from, to) {
   let spans = null; // later rules override earlier ones for the days they name
   for (const r of rules) {
     if (r.months && !r.months.includes(mon)) continue;
+    if (r.mday && r.mday !== d.getUTCDate()) continue;
     if (r.days && !r.days.includes(dow)) continue;
     spans = r.spans;
   }

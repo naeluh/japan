@@ -27,6 +27,7 @@
   /* ---------- document store with polling ---------- */
   const docs = new Map();
   let rev = 0, loaded = false, loading = null;
+  window.TRIP_API.doc = (p) => docs.get(p);
   const listeners = new Set();
   const snapDoc = (path, v) => ({ id: path.split("/").pop(), exists: v !== undefined, data: () => v, metadata: { fromCache: false, hasPendingWrites: false } });
   function fireAll() { listeners.forEach(l => { try { l.fire(); } catch (e) { console.error(e); } }); }
@@ -53,12 +54,17 @@
   }
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { pull(); schedule(); } });
 
-  async function ensureName() {
-    if (ls(LS_NAME)) return;
-    const n = (window.prompt("What's your name? It shows next to the changes you make.") || "").trim().slice(0, 40);
-    if (!n) return;
-    ls(LS_NAME, n);
-    await api("/api/db", { method: "POST", body: JSON.stringify({ op: "set", path: "people/" + uid, data: { name: n } }) });
+  let naming = null; // one name question at a time, however many edits are waiting on it
+  function ensureName() {
+    if (ls(LS_NAME)) return Promise.resolve();
+    if (!naming) naming = (async () => {
+      const ask = window.TRIP_API.askName || (async () => window.prompt("What's your name? It shows next to the changes you make.") || "");
+      const n = String(await ask() || "").trim().slice(0, 40);
+      if (!n) return;
+      ls(LS_NAME, n);
+      await api("/api/db", { method: "POST", body: JSON.stringify({ op: "set", path: "people/" + uid, data: { name: n } }) });
+    })().finally(() => { naming = null; });
+    return naming;
   }
   async function write(op, path, data) {
     const before = docs.has(path) ? docs.get(path) : undefined;

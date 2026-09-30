@@ -1,8 +1,11 @@
 /* Runs the planner outside Claude: provides window.claude.use("db" | "user") backed by this site's /api routes.
-   The share link carries a key (?k=...) that is saved in this browser and sent with every request. */
+   The share link carries a key (?k=...) that is saved in this browser and sent with every request.
+   Offline: the last synced plan is kept in localStorage and shown at once; edits made without signal wait in an
+   outbox and are sent, in order, when the connection is back. */
 (function () {
   "use strict";
-  const LS_KEY = "trip:key", LS_UID = "trip:uid", LS_NAME = "trip:name";
+  const LS_KEY = "trip:key", LS_UID = "trip:uid", LS_NAME = "trip:name", LS_SNAP = "trip:snap", LS_CFG = "trip:cfg", LS_OUT = "trip:outbox";
+  const netErr = (e) => e instanceof TypeError; // fetch rejects with TypeError only when there's no response at all
   const qs = new URLSearchParams(location.search);
   if (qs.get("k")) {
     try { localStorage.setItem(LS_KEY, qs.get("k")); } catch (e) {}
@@ -21,26 +24,74 @@
     if (!r.ok) throw { code: (body && body.code) || "unavailable", message: (body && body.message) || r.statusText, status: r.status };
     return body;
   }
-  const config = api("/api/config").catch(() => ({ canEdit: false, canView: false, features: {} }));
+  // Offline, fall back to the last config this browser saw (network errors only: a 403 must still lock the page).
+  const config = api("/api/config").then(c => { ls(LS_CFG, JSON.stringify(c)); return c; }).catch(e => {
+    if (netErr(e)) { try { const c = JSON.parse(ls(LS_CFG) || "null"); if (c) return Object.assign({}, c, { offline: true }); } catch (x) { /* no saved config */ } }
+    return { canEdit: false, canView: false, features: {} };
+  });
   window.TRIP_API = { api, key, uid, config, standalone: true };
 
   /* ---------- document store with polling ---------- */
   const docs = new Map();
-  let rev = 0, loaded = false, loading = null;
+  let rev = 0, epoch = "", loaded = false, loading = null;
   window.TRIP_API.doc = (p) => docs.get(p);
   const listeners = new Set();
   const snapDoc = (path, v) => ({ id: path.split("/").pop(), exists: v !== undefined, data: () => v, metadata: { fromCache: false, hasPendingWrites: false } });
   function fireAll() { listeners.forEach(l => { try { l.fire(); } catch (e) { console.error(e); } }); }
+  function applyOp(o) {
+    if (o.op === "set") docs.set(o.path, o.data);
+    else if (o.op === "update") docs.set(o.path, Object.assign({}, docs.get(o.path) || {}, o.data));
+    else docs.delete(o.path);
+  }
+
+  /* ---------- offline copy + outbox ---------- */
+  let outbox = [];
+  try { outbox = JSON.parse(ls(LS_OUT) || "[]"); if (!Array.isArray(outbox)) outbox = []; } catch (e) { outbox = []; }
+  function saveOutbox() { ls(LS_OUT, JSON.stringify(outbox)); window.dispatchEvent(new CustomEvent("trip:outbox", { detail: outbox.length })); }
+  window.TRIP_API.pending = () => outbox.length;
+  try {
+    const snap = JSON.parse(ls(LS_SNAP) || "null");
+    if (snap && snap.docs) { for (const [p, v] of Object.entries(snap.docs)) docs.set(p, v); rev = snap.rev || 0; epoch = snap.epoch || ""; loaded = true; outbox.forEach(applyOp); }
+  } catch (e) { /* no offline copy yet */ }
+  let snapTimer = null;
+  function saveSnap() {
+    clearTimeout(snapTimer);
+    snapTimer = setTimeout(() => {
+      const out = {}, logs = [];
+      docs.forEach((v, p) => { if (p.startsWith("log/")) logs.push([p, v]); else out[p] = v; });
+      logs.sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, 50).forEach(([p, v]) => { out[p] = v; }); // the log grows forever; keep the recent part
+      try { localStorage.setItem(LS_SNAP, JSON.stringify({ rev, epoch, at: Date.now(), docs: out })); } catch (e) { /* full or blocked: stay online-only */ }
+    }, 800);
+  }
+  let flushing = null;
+  function flush() {
+    if (flushing) return flushing;
+    flushing = (async () => {
+      while (outbox.length) {
+        const o = outbox[0];
+        try { await api("/api/db", { method: "POST", body: JSON.stringify(o) }); outbox.shift(); saveOutbox(); }
+        catch (e) {
+          if (netErr(e)) break;                 // still offline: try again later
+          outbox.shift(); saveOutbox();          // the server refused it: drop it and say so
+          if (window.TRIP_API.onSyncError) window.TRIP_API.onSyncError(e, o); else console.error(e);
+        }
+      }
+    })().finally(() => { flushing = null; });
+    return flushing;
+  }
+  window.addEventListener("online", () => { flush().then(() => pull()); });
+
   async function pull() {
     if (loading) return loading;
     loading = (async () => {
       try {
-        const r = await api("/api/db?since=" + (loaded ? rev : 0));
+        const r = await api("/api/db?since=" + (loaded ? rev : 0) + (loaded && epoch ? "&epoch=" + encodeURIComponent(epoch) : ""));
         let changed = !!r.full;
         if (r.full) docs.clear();
         for (const [p, v] of Object.entries(r.docs || {})) { changed = true; if (v === null) docs.delete(p); else docs.set(p, v); }
-        rev = r.rev; loaded = true;
-        if (changed) fireAll();
+        rev = r.rev; epoch = r.epoch || epoch; loaded = true;
+        if (outbox.length) { outbox.forEach(applyOp); changed = true; flush(); } // pending offline edits stay visible until they land
+        if (changed) { fireAll(); saveSnap(); }
       } catch (e) {
         if (!loaded) listeners.forEach(l => l.error && l.error(e));
       } finally { loading = null; }
@@ -63,21 +114,24 @@
       const n = String(await ask() || "").trim().slice(0, 40);
       if (!n) return;
       ls(LS_NAME, n);
-      await api("/api/db", { method: "POST", body: JSON.stringify({ op: "set", path: "people/" + uid, data: { name: n } }) });
+      const op = { op: "set", path: "people/" + uid, data: { name: n } };
+      try { await api("/api/db", { method: "POST", body: JSON.stringify(op) }); }
+      catch (e) { if (netErr(e)) { outbox.push(op); saveOutbox(); } else throw e; }
     })().finally(() => { naming = null; });
     return naming;
   }
   async function write(op, path, data) {
     const before = docs.has(path) ? docs.get(path) : undefined;
-    if (op === "set") docs.set(path, data);
-    else if (op === "update") docs.set(path, Object.assign({}, before || {}, data));
-    else docs.delete(path);
-    fireAll();
+    const o = { op, path, data };
+    applyOp(o); fireAll();
+    const queue = () => { outbox.push(o); saveOutbox(); saveSnap(); };   // resolves: the page shouldn't wait for signal
+    ensureName().catch(() => {});   // the name only labels Recent changes: never hold an edit hostage to the question
     try {
-      await ensureName();
-      await api("/api/db", { method: "POST", body: JSON.stringify({ op, path, data }) });
+      if (outbox.length) { queue(); flush(); return; }                    // keep order behind edits already waiting
+      await api("/api/db", { method: "POST", body: JSON.stringify(o) });
     } catch (e) {
-      if (before === undefined) docs.delete(path); else docs.set(path, before);
+      if (netErr(e)) { queue(); return; }
+      if (before === undefined) docs.delete(path); else docs.set(path, before);   // refused (read-only, bad data): undo and tell the page
       fireAll(); throw e;
     }
     pull();

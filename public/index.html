@@ -11,10 +11,16 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Shippori+Mincho:wght@600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/app.css">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Japan 2027">
 <script src="/shim.js"></script>
 <script type="module" src="/app.js"></script>
 <script type="module" src="/deals.js"></script>
 <script type="module" src="/explore.js"></script>
+<script type="module" src="/today.js"></script>
 </head>
 <body>
 <header class="top">
@@ -99,6 +105,13 @@
   </div>
 </section>
 
+<section class="screen" data-screen="today" aria-label="Today" hidden>
+  <div class="wrap">
+    <div class="stack-v today" id="todayView"></div>
+    <div class="foot-space"></div>
+  </div>
+</section>
+
 <section class="screen" data-screen="deals" aria-label="Deals" hidden>
   <div class="wrap">
     <header class="money-head"><p class="kicker">Price watch</p><h1>Deals</h1></header>
@@ -129,18 +142,21 @@
       <section class="card pad"><h2 class="card-title">By category</h2><div class="tablewrap"><table class="btable" id="btable"></table></div></section>
       <section class="card pad"><h2 class="card-title">Biggest costs</h2><ol class="big" id="bigCosts"></ol></section>
       <section class="card pad">
-        <h2 class="card-title">Spending log</h2>
+        <div class="stay-head"><h2 class="card-title">Spending log</h2><span id="scanSlot"></span></div>
         <p class="lead">Anything you pay for that isn't on the plan: snacks, souvenirs, a taxi you didn't expect.</p>
         <form class="inline" id="expForm" hidden>
           <label>Amount<input type="number" name="amount" min="0" step="1" required inputmode="decimal"></label>
           <label>Currency<select name="cur"><option value="JPY">&yen; yen</option><option value="USD">$ dollars</option></select></label>
           <label>Category<select name="cat"></select></label>
           <label style="flex:1;min-width:160px">What for<input type="text" name="note" maxlength="120" placeholder="Matcha and mochi, Nishiki"></label>
+          <label>Paid by<select name="paidBy"><option value="">Not set</option></select></label>
+          <label>For<select name="split"><option value="even">Both of us</option></select></label>
           <button class="btn" type="submit">Add expense</button>
         </form>
         <ul class="exp" id="expList"></ul>
         <p class="empty" id="expEmpty">Nothing logged yet.</p>
       </section>
+      <section class="card pad"><h2 class="card-title">Who owes whom</h2><div id="settle"></div></section>
       <section class="card pad" id="budgetSettings" hidden>
         <details class="disclose">
           <summary>Budget, exchange rate and meal costs <span data-icon="chevron"></span></summary>

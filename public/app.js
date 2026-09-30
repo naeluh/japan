@@ -1,5 +1,5 @@
 /* Japan trip planner: core (sync, plan, money, sheets, routing). Feature screens live in their own modules. */
-import { TRIP, TRAVELERS, CHAPTERS, GROUPS, GROUP_DATE, CH_COORD, CH_CITY, groupCh, opensAt } from './trip.js';
+import { TRIP, TRAVELERS, CHAPTERS, GROUPS, GROUP_DATE, CH_COORD, CH_CITY, groupCh, opensAt, settle } from './trip.js';
 
 const PRIOS = ['high', 'medium', 'low'];
 const PLABEL = { high: 'High', medium: 'Medium', low: 'Low' };
@@ -83,10 +83,14 @@ function setStatus(parts) {
 function syncPill() {
   const p = $('#syncPill'); if (!db) { p.hidden = true; return; }
   p.hidden = false;
-  const [cls, text] = !canWrite ? ['readonly', 'View only'] : !navigator.onLine ? ['offline', 'Offline'] : pending ? ['saving', 'Saving'] : ['', 'Saved'];
+  const waiting = API.pending ? API.pending() : 0;
+  const [cls, text] = !canWrite ? ['readonly', navigator.onLine ? 'View only' : 'Offline'] : !navigator.onLine ? ['offline', waiting ? 'Offline · ' + waiting + ' to sync' : 'Offline']
+    : waiting ? ['saving', 'Syncing ' + waiting] : pending ? ['saving', 'Saving'] : ['', 'Saved'];
   p.className = 'pill-status' + (cls ? ' ' + cls : ''); p.textContent = text;
 }
-addEventListener('online', syncPill); addEventListener('offline', syncPill);
+addEventListener('online', syncPill); addEventListener('offline', syncPill); addEventListener('trip:outbox', syncPill);
+API.onSyncError = (e) => toast('A change made offline couldn\'t be saved' + (e && e.message ? ': ' + e.message : '.'));
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('/sw.js').catch(() => { /* offline shell is optional */ });
 
 /* ---------- Sheet (one <dialog>, bottom sheet on phones) ---------- */
 let sheetOnClose = null;   // settle the previous sheet's callback before replacing it (the name sheet has a promise waiting on it)
@@ -304,6 +308,7 @@ function renderMoney() {
     big.append(li);
   });
   renderExpenses();
+  renderSettle();
   renderFares(false);
   for (const m of Object.values(modules)) if (m.onMoney) m.onMoney();
 }
@@ -333,6 +338,24 @@ async function renderExpenses() {
     ul.append(li);
   });
 }
+/* Who owes whom: expenses and paid plan items that say who paid. Split evenly unless marked for one person. */
+function renderSettle() {
+  const box = $('#settle'); if (!box) return; box.textContent = '';
+  const entries = [
+    ...expenses.map(e => ({ usd: toUSD(e.amount, e.cur), paidBy: e.paidBy, split: e.split })),
+    ...live().filter(i => hasCost(i) && i.paid && i.cost > 0).map(i => ({ usd: toUSD(i.cost, i.cur), paidBy: i.paidBy, split: 'even' }))
+  ];
+  const unset = entries.filter(e => e.usd > 0 && !TRAVELERS.includes(e.paidBy)).length;
+  const r = settle(entries, TRAVELERS);
+  const head = el('p', 'bignum', r.owes.length ? r.owes.map(o => o.from + ' owes ' + o.to + ' ' + fUSD(o.usd)).join(', ') : 'All square');
+  head.style.fontSize = '24px';
+  box.append(head);
+  const figs = el('div', 'figs');
+  TRAVELERS.forEach(t => { const s = el('span'); s.append(document.createTextNode(t + ' paid'), el('b', null, fUSD(r.paid[t]))); figs.append(s); });
+  box.append(figs);
+  if (unset) box.append(el('p', 'help', unset + (unset === 1 ? ' payment doesn\'t' : ' payments don\'t') + ' say who paid, so ' + (unset === 1 ? 'it isn\'t' : 'they aren\'t') + ' counted. Set "Paid by" on expenses and on paid items.'));
+}
+
 let setDirty = false;
 function renderSettingsForm(force) {
   const grid = $('#setGrid');
@@ -356,14 +379,18 @@ function setupBudgetForms() {
   const sel = $('#expForm select[name=cat]');
   CATS.forEach(c => { const o = el('option', null, c.name); o.value = c.id; sel.append(o); });
   sel.value = 'food';
+  const pb = $('#expForm select[name=paidBy]'), sp = $('#expForm select[name=split]');
+  TRAVELERS.forEach(t => { const o = el('option', null, t); o.value = t; pb.append(o); const o2 = el('option', null, 'Only ' + t); o2.value = t; sp.append(o2); });
+  let meName = ''; try { meName = localStorage.getItem('trip:name') || ''; } catch (e) { /* none */ }
+  if (TRAVELERS.includes(meName)) pb.value = meName;
   $('#expForm').onsubmit = (ev) => {
     ev.preventDefault();
     if (!db || !canWrite) return;
     const f = ev.target; const amount = Number(f.amount.value);
     if (!(amount > 0)) { toast('Enter an amount above zero.'); f.amount.classList.add('shake'); setTimeout(() => f.amount.classList.remove('shake'), 300); return; }
     const data = { amount, cur: f.cur.value, cat: f.cat.value, note: f.note.value.trim().slice(0, 120), at: Date.now(), by: uid || null };
-    if (f.paidBy && f.paidBy.value) data.paidBy = f.paidBy.value;
-    if (f.split && f.split.value) data.split = f.split.value;
+    if (TRAVELERS.includes(f.paidBy.value)) data.paidBy = f.paidBy.value;
+    data.split = TRAVELERS.includes(f.split.value) ? f.split.value : 'even';
     db.collection('expenses').add(data).then(() => addLog('Logged ' + fAmt(amount, data.cur) + (data.note ? ' for ' + q(data.note) : ''))).catch(handleErr);
     f.amount.value = ''; f.note.value = '';
   };
@@ -1148,7 +1175,7 @@ document.querySelectorAll('[data-icon]').forEach(n => n.replaceWith(icon(n.datas
 export const ctx = {
   $, el, sv, icon, withIcon, iconBtn, extLink, toast, openSheet, closeSheet, copyText, safeUrl, q,
   get items() { return items; }, live, get db() { return db; }, get uid() { return uid; }, get canWrite() { return canWrite; }, get features() { return features; },
-  get settings() { return settings; }, get expenses() { return expenses; }, get loaded() { return loaded; },
+  get settings() { return settings; }, get expenses() { return expenses; }, get loaded() { return loaded; }, get modules() { return modules; },
   write, create, addLog, handleErr, render, go, register: (id, m) => { modules[id] = m; buildNav(); route(); },
   gapHooks, itemHooks, openEditor, flashItem, hasPin, mins, fmt12, dur, byTime, tokyoNow, timeRange, mapsUrl, routeUrl, mapQuery,
   toUSD, fUSD, fJPY, fAmt, hasCost, rate, addDaysISO, fmtOpens, wxText, walkLegFor, linkList, ago, CATS

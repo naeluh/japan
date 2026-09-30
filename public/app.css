@@ -519,6 +519,26 @@ ul.reasons li::before{content:"";display:inline-block;width:5px;height:5px;borde
 .fares td.n{width:110px}
 .fares td.x{width:36px}
 
+/* ---------- Today ---------- */
+.today{padding-top:20px}
+.daynav{display:flex;align-items:center;gap:8px}
+.daynav .kicker{margin:0}
+.today-title{font-family:var(--font-display);font-weight:700;font-size:clamp(1.5rem,6vw,2rem);line-height:1.2;margin:2px 0 0}
+.nextstop{display:grid;gap:8px}
+.nextstop .kicker{margin:0}
+.nextstop .bignum{margin:0;font-size:28px}
+.next-title{font-size:22px;line-height:1.3;font-weight:500;letter-spacing:-.01em;margin:0}
+.nextstop .where,.nextstop .detail{margin:0}
+ul.dayline{list-style:none;margin:10px 0 0;padding:0}
+ul.dayline li{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border);font-size:14px}
+ul.dayline li:first-child{border-top:0}
+ul.dayline .t{width:72px;flex:none;font:500 12px var(--font-mono);color:var(--fg-muted)}
+ul.dayline li.done .grow{text-decoration:line-through;color:var(--fg-muted)}
+ul.dayline li.current .grow{font-weight:600}
+ul.dayline input.check{width:20px;height:20px;margin:0;flex:none}
+label.btn{position:relative}
+label.btn.busy{opacity:.7;pointer-events:none}
+
 /* ---------- Toast, log ---------- */
 .toast{position:fixed;left:50%;bottom:calc(16px + var(--dock-h) + env(safe-area-inset-bottom,0px));z-index:40;transform:translate(-50%,8px);max-width:min(92vw,480px);
   background:var(--surface-1);color:var(--fg);border:1px solid var(--border);box-shadow:var(--shadow-raised);border-radius:var(--r-panel);

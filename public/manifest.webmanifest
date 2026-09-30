@@ -1,0 +1,15 @@
+{
+  "name": "Japan, April 2027",
+  "short_name": "Japan 2027",
+  "description": "Kristin and Nick's shared trip plan: timeline, price watch, discovery and a travel-day view that works offline.",
+  "start_url": "/#/today",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F8F6F1",
+  "theme_color": "#F8F6F1",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

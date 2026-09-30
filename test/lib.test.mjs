@@ -127,3 +127,19 @@ test('rakuten: plan summary picks cheapest, with-meals and room-only plans', () 
   assert.equal(s.meals.withMeals.firstNight, 58000);
   assert.equal(s.meals.roomOnly.firstNight, 35000);
 });
+
+test('split: settle-up between two travelers', async () => {
+  const { settle } = await import('../public/trip.js');
+  const r = settle([{ usd: 100, paidBy: 'Kristin' }, { usd: 40, paidBy: 'Nick', split: 'Nick' }, { usd: 60, paidBy: 'Nick' }, { usd: 30 }], ['Kristin', 'Nick']);
+  assert.deepEqual(r.paid, { Kristin: 100, Nick: 100 });
+  assert.deepEqual(r.share, { Kristin: 80, Nick: 120 });
+  assert.deepEqual(r.owes, [{ from: 'Nick', to: 'Kristin', usd: 20 }]);
+  assert.deepEqual(settle([{ usd: 50, paidBy: 'Kristin' }, { usd: 50, paidBy: 'Nick' }], ['Kristin', 'Nick']).owes, []);
+});
+
+test('taste: priorities, check-offs, skips, picks and dismissals', async () => {
+  const { tasteProfile } = await import('../public/trip.js');
+  const w = tasteProfile([{ title: 'Itoya stationery', priority: 'high', done: true }, { title: 'Temple walk', disabled: true }, { title: 'x', category: 'bathhouse', priority: 'low' }],
+    { picks: { museum: 2 }, dismissed: { 'node/1': 'bathhouse' } });
+  assert.equal(w.stationery, 4); assert.equal(w.temple, -2); assert.equal(w.museum, 4); assert.equal(w.bathhouse, 0);
+});

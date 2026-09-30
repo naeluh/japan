@@ -166,17 +166,20 @@ export function rank(places, { lat, lng, maxWalk = 15, date = '', from = null, t
     .filter(p => p.open !== 'closed');
 }
 
-/* Opening-hours clash check: for each stop, the nearest OSM feature with opening_hours (by name, else within 30 m). */
+/* Opening-hours clash check: for each stop, an OSM feature with opening_hours whose NAME matches the stop.
+   No name match = unknown: borrowing the nearest shop's hours would flag the wrong place. */
 export async function hoursFor(stops) {
   const q = `[out:json][timeout:25];(${stops.map(s => `nwr(around:80,${s.lat},${s.lng})["opening_hours"];`).join('')});out center tags 400;`;
-  const els = (await overpass(q)).map(e => ({ tags: e.tags || {}, lat: (e.center || e).lat, lng: (e.center || e).lon }));
+  return matchHours(stops, (await overpass(q)).map(e => ({ tags: e.tags || {}, lat: (e.center || e).lat, lng: (e.center || e).lon })));
+}
+export function matchHours(stops, els) {
   const norm = (x) => String(x || '').toLowerCase().replace(/[\s\-・'’().,]/g, '');
   const out = {};
   for (const s of stops) {
     const cands = els.map(e => ({ e, d: distanceM(s, e) })).filter(x => x.d <= 80);
-    const n = norm(s.name);
-    const byName = n.length >= 3 && cands.find(({ e }) => [e.tags.name, e.tags['name:en'], e.tags['name:ja']].map(norm).some(v => v && (v.includes(n) || n.includes(v))));
-    const pick = byName || cands.filter(x => x.d <= 30).sort((a, b) => a.d - b.d)[0];
+    const wants = [s.name, s.alt].map(norm).filter(n => n.length >= 3);
+    const names = (t) => [t.name, t['name:en'], t['name:ja'], t.alt_name, t.official_name, t['name:ja-Latn']].map(norm).filter(v => v.length >= 3);
+    const pick = cands.sort((a, b) => a.d - b.d).find(({ e }) => !isChain(e.tags) && names(e.tags).some(v => wants.some(n => v.includes(n) || n.includes(v))));
     if (!pick) { out[s.id] = { state: 'unknown' }; continue; }
     const hours = pick.e.tags.opening_hours;
     out[s.id] = { state: openState(hours, s.date, s.from, s.to), hours, matched: pick.e.tags['name:en'] || pick.e.tags.name || '' };

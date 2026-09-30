@@ -16,7 +16,7 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       const b = await body(req);
       const stops = (Array.isArray(b.stops) ? b.stops : []).slice(0, 40).map(s => ({
-        id: String(s.id || '').slice(0, 80), name: String(s.name || '').slice(0, 120), lat: Number(s.lat), lng: Number(s.lng),
+        id: String(s.id || '').slice(0, 80), name: String(s.name || '').slice(0, 120), alt: String(s.alt || '').slice(0, 120), lat: Number(s.lat), lng: Number(s.lng),
         date: ISO.test(s.date || '') ? s.date : '', from: hm(s.from), to: hm(s.to)
       })).filter(s => s.id && inJapan(s.lat, s.lng) && s.date);
       if (!stops.length) return send(res, 200, { hours: {} });

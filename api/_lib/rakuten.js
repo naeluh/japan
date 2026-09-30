@@ -15,13 +15,18 @@ function creds() { return `applicationId=${encodeURIComponent(process.env.RAKUTE
 function headers() { return process.env.PUBLIC_URL ? { Referer: process.env.PUBLIC_URL, Origin: process.env.PUBLIC_URL } : {}; }
 export function addDays(d, n) { const t = new Date(d + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); }
 
-// Rakuten allows about one request per second. ponytail: per-instance gate, a shared lock if several instances ever run at once.
-let last = 0;
-async function call(path, params) {
-  const wait = last + 1100 - Date.now();
-  if (wait > 0) await sleep(wait);
-  last = Date.now();
-  return getJSON(`${BASE}/${path}?${creds()}&${params}`, { headers: headers() });
+// Rakuten allows about one request per second: calls queue behind each other (parallel assistant tools included).
+// ponytail: per-instance queue; a shared lock if several instances ever run at once.
+let last = 0, gate = Promise.resolve();
+function call(path, params) {
+  const run = gate.then(async () => {
+    const wait = last + 1100 - Date.now();
+    if (wait > 0) await sleep(wait);
+    last = Date.now();
+    return getJSON(`${BASE}/${path}?${creds()}&${params}`, { headers: headers() });
+  });
+  gate = run.catch(() => {});
+  return run;
 }
 
 /* Plans inside one hotel's vacancy result: cheapest first, plus the cheapest with dinner and breakfast and the cheapest without dinner. */

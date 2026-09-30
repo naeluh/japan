@@ -10,7 +10,7 @@ const pad = (n) => String(n).padStart(2, '0');
 const hhmm = (m) => pad(Math.floor(m / 60) % 24) + ':' + pad(m % 60);
 const OPEN = { open: ['Open then', 'success'], partial: ['Closes during your visit', 'warning'], unknown: ['Hours unknown', ''] };
 
-const state = { day: DAYS[0].id, anchor: '', walk: 15, at: '', gap: null, results: null, loading: false, error: '', seq: 0, coords: null };
+const state = { mode: 'nearby', day: DAYS[0].id, anchor: '', walk: 15, at: '', gap: null, results: null, loading: false, error: '', seq: 0, coords: null };
 let taste = {}, tasteSubscribed = false;
 
 function subscribeTaste() {
@@ -40,7 +40,7 @@ function openGap(gap) {
   state.walk = gap.minutes >= 90 ? 15 : 10;
   state.at = hhmm(gap.from);
   state.gap = { from: gap.from, to: gap.to, minutes: gap.minutes, near: gap.anchor ? (gap.anchor.place || gap.anchor.title || '').split(',')[0] : '' };
-  state.results = null;
+  state.results = null; state.mode = 'nearby';
   ctx.go('explore');
   search();
 }
@@ -168,11 +168,98 @@ function controls() {
   return card;
 }
 
+/* ---------- Ask: the Claude trip assistant ---------- */
+const PRESETS = [
+  'Find a historic ryokan in Kyoto with a private bath under $250 a night, walkable to Gion.',
+  'Find savings across the whole trip: nights to move, day trips to swap, passes worth buying.',
+  'What unusual places fit the free time on Thursday in Kyoto?'
+];
+let chat = [];
+try { chat = JSON.parse(sessionStorage.getItem('trip:chat') || '[]'); } catch (e) { chat = []; }
+let asking = false;
+function saveChat() { try { sessionStorage.setItem('trip:chat', JSON.stringify(chat.slice(-30))); } catch (e) { /* per-tab convenience only */ } }
+
+/* Model text -> DOM, never innerHTML: paragraphs, "- " lists, **bold**, and links through safeUrl. */
+function inline(parent, text) {
+  const re = /(\*\*[^*]+\*\*|https?:\/\/[^\s)\]]+|\[[^\]]+\]\((https?:\/\/[^)\s]+)\))/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) parent.append(document.createTextNode(text.slice(last, m.index)));
+    const tok = m[0];
+    if (tok.startsWith('**')) parent.append(el('strong', null, tok.slice(2, -2)));
+    else {
+      const md = /^\[([^\]]+)\]\((.+)\)$/.exec(tok); const url = ctx.safeUrl(md ? md[2] : tok);
+      if (url) { const a = el('a', null, md ? md[1] : url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 48)); a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; parent.append(a); }
+      else parent.append(document.createTextNode(tok));
+    }
+    last = m.index + tok.length;
+  }
+  if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
+}
+function richText(text) {
+  const box = el('div', 'rich'); let list = null;
+  for (const raw of String(text).split('\n')) {
+    const line = raw.trimEnd();
+    const li = /^\s*(?:[-*•]|\d+[.)])\s+(.*)$/.exec(line);
+    if (li) { if (!list) { list = el('ul'); box.append(list); } const n = el('li'); inline(n, li[1]); list.append(n); continue; }
+    list = null;
+    if (!line.trim()) continue;
+    const h = /^#{1,4}\s+(.*)$/.exec(line);
+    const p = el(h ? 'h4' : 'p'); inline(p, h ? h[1] : line); box.append(p);
+  }
+  return box;
+}
+async function ask(text) {
+  text = String(text || '').trim(); if (!text || asking) return;
+  chat.push({ role: 'user', text }); asking = true; saveChat(); render();
+  try {
+    const r = await API.api('/api/assistant', { method: 'POST', body: JSON.stringify({ messages: chat.map(m => ({ role: m.role, text: m.text })) }) });
+    chat.push({ role: 'assistant', text: r.text, trace: r.trace || [] });
+  } catch (e) {
+    chat.push({ role: 'assistant', text: (e && e.message) || 'The assistant didn\'t answer. Try again.', error: true });
+  } finally { asking = false; saveChat(); render(); }
+}
+function askPanel(root) {
+  if (!ctx.features.assistant) {
+    root.append(el('p', 'slab info', ctx.canWrite ? 'The assistant turns on with ANTHROPIC_API_KEY in the Vercel settings.' : 'The assistant needs the edit link.'));
+    return;
+  }
+  if (!ctx.canWrite) { root.append(el('p', 'slab info', 'The assistant needs the edit link.')); return; }
+  const log = el('div', 'chat');
+  if (!chat.length) {
+    const intro = el('section', 'card pad');
+    intro.append(el('p', 'lead', 'Ask about the plan in plain English. It reads your plan and runs real searches: Rakuten prices, OpenStreetMap places and hours, walking times and your fare table.'));
+    const pills = el('div', 'pills'); PRESETS.forEach(t => { const b = el('button', 'chip', t); b.type = 'button'; b.onclick = () => ask(t); pills.append(b); });
+    intro.append(pills); log.append(intro);
+  }
+  chat.forEach(m => {
+    const b = el('div', 'bubble ' + m.role + (m.error ? ' error' : ''));
+    if (m.role === 'user') b.append(el('p', null, m.text)); else b.append(richText(m.text));
+    if (m.trace && m.trace.length) { const t = el('div', 'trace'); m.trace.forEach(x => t.append(el('span', 'badge', x.label))); b.append(t); }
+    log.append(b);
+  });
+  if (asking) log.append(el('div', 'bubble assistant thinking', 'Looking it up…'));
+  root.append(log);
+  const f = el('form', 'composer');
+  const ta = el('textarea'); ta.rows = 2; ta.placeholder = 'Ask about the trip'; ta.setAttribute('aria-label', 'Ask the trip assistant'); ta.maxLength = 4000;
+  ta.onkeydown = (ev) => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); f.requestSubmit(); } };
+  const send = el('button', 'btn icon'); send.type = 'submit'; send.setAttribute('aria-label', 'Send'); send.append(icon('send')); send.disabled = asking;
+  f.append(ta, send);
+  f.onsubmit = (ev) => { ev.preventDefault(); const v = ta.value; ta.value = ''; ask(v); };
+  root.append(f);
+  if (chat.length) { const clr = el('button', 'skiplink', 'Start over'); clr.type = 'button'; clr.onclick = () => { chat = []; saveChat(); render(); }; root.append(clr); }
+  if (asking || chat.length) requestAnimationFrame(() => { if (document.activeElement !== ta) f.scrollIntoView({ block: 'end' }); });
+}
+
 function render() {
   const root = $('#explore'); if (!root) return;
   subscribeTaste();
   root.textContent = '';
   if (!ctx.loaded) return;
+  const modes = el('div', 'seg'); modes.setAttribute('role', 'group'); modes.setAttribute('aria-label', 'Explore mode');
+  [['nearby', 'Nearby'], ['ask', 'Ask']].forEach(([id, label]) => { const b = el('button', null, label); b.type = 'button'; b.setAttribute('aria-pressed', String(state.mode === id)); b.onclick = () => { state.mode = id; render(); }; modes.append(b); });
+  root.append(modes);
+  if (state.mode === 'ask') { askPanel(root); return; }
   root.append(controls());
   if (state.gap) {
     const g = state.gap; const s = el('div', 'slab info gapnote');
@@ -190,4 +277,35 @@ function render() {
   } else root.append(el('p', 'empty', 'Pick a day and a stop to see old shops, small museums, bathhouses and quiet shrines within a short walk.'));
 }
 
-ctx.register('explore', { render });
+/* ---------- Opening-hours clash check (Plan toolbar) ---------- */
+let hours = {};
+try { hours = JSON.parse(localStorage.getItem('trip:hours') || '{}').results || {}; } catch (e) { hours = {}; }
+async function checkHours(btn) {
+  const stops = ctx.live().filter(i => GROUP_DATE[i.group] && i.kind !== 'travel' && ctx.hasPin(i) && i.start)
+    .map(i => ({ id: i.id, name: (i.place || i.title || '').split(',')[0], alt: (i.title || '').split(/[,(]/)[0], lat: i.lat, lng: i.lng, date: GROUP_DATE[i.group], from: i.start, to: i.end || '' }));
+  if (!stops.length) { toast('No stops with a time and a map pin to check.'); return; }
+  const label = btn.textContent; btn.disabled = true; btn.textContent = 'Checking ' + stops.length + ' stops…';
+  const out = {};
+  try {
+    for (let k = 0; k < stops.length; k += 20) Object.assign(out, (await API.api('/api/discover', { method: 'POST', body: JSON.stringify({ stops: stops.slice(k, k + 20) }) })).hours);
+    hours = out;
+    try { localStorage.setItem('trip:hours', JSON.stringify({ at: Date.now(), results: out })); } catch (e) { /* offline copy is optional */ }
+    const bad = Object.values(out).filter(h => h.state === 'closed' || h.state === 'partial').length;
+    const known = Object.values(out).filter(h => h.state !== 'unknown').length;
+    toast(bad ? bad + (bad === 1 ? ' stop may be closed' : ' stops may be closed') + ' when you plan to be there. They\'re marked on the plan.' : 'No clashes among the ' + known + ' stops OpenStreetMap has hours for.');
+  } catch (e) { toast((e && e.message) || 'The hours check didn\'t run. Try again.'); }
+  finally { btn.disabled = false; btn.textContent = label; ctx.render(); }
+}
+ctx.itemHooks.push((i) => {
+  const h = hours[i.id]; if (!h || !(h.state === 'closed' || h.state === 'partial') || i.done || i.disabled) return null;
+  const s = el('p', 'slab warning hoursnote');
+  s.append(icon('clock'), document.createTextNode((h.state === 'closed' ? ' May be closed then.' : ' May close before you leave.') + (h.hours ? ' OpenStreetMap hours: ' + h.hours + (h.matched ? ' (' + h.matched + ')' : '') + '.' : '')));
+  return s;
+});
+{
+  const tb = document.querySelector('.toolbar');
+  const b = el('button', 'chip'); b.type = 'button'; withIcon(b, 'clock', 'Check opening hours'); b.onclick = () => checkHours(b);
+  if (tb) tb.append(b);
+}
+
+ctx.register('explore', { render, ask: (t) => { state.mode = 'ask'; ctx.go('explore'); ask(t); } });

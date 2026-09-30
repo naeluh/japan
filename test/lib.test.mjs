@@ -66,6 +66,16 @@ test('discovery: rank filters by walking range, closed places and dismissals', (
   assert.ok(r[0].walkMin >= 1);
 });
 
+test('opening-hours clash check matches by name only', async () => {
+  const { matchHours } = await import('../api/_lib/osm.js');
+  const els = [{ tags: { name: 'FamilyMart', brand: 'FamilyMart', opening_hours: '24/7' }, lat: 35.0001, lng: 135.0001 },
+    { tags: { name: '伊東屋', 'name:en': 'Itoya', opening_hours: 'Mo-Su 10:00-20:00' }, lat: 35.0003, lng: 135.0003 }];
+  const r = matchHours([{ id: 'a', name: 'Itoya', lat: 35, lng: 135, date: '2027-04-06', from: 600, to: 660 },
+    { id: 'b', name: 'Ramen Nagi', lat: 35, lng: 135, date: '2027-04-06', from: 600, to: 660 }], els);
+  assert.equal(r.a.state, 'open'); assert.equal(r.a.matched, 'Itoya');
+  assert.equal(r.b.state, 'unknown', 'no borrowed hours from the FamilyMart next door');
+});
+
 test('price watch: alerts for target crossing, reopening and a new low', () => {
   const base = { found: true, available: true, estimateTotal: 60000, firstNight: 30000, nights: 2, hotelNo: '1', hotelName: 'H' };
   const first = applyCheck(null, base, { title: 'Ryokan', target: 50000, day: '2026-10-01' });

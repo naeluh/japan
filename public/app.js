@@ -304,6 +304,7 @@ function renderMoney() {
     big.append(li);
   });
   renderExpenses();
+  renderFares(false);
   for (const m of Object.values(modules)) if (m.onMoney) m.onMoney();
 }
 let expSeq = 0;
@@ -377,6 +378,42 @@ function setupBudgetForms() {
     db.doc('settings/budget').set({ ...settingsRaw, rate: r, useLive: f.useLive.checked, cats, meals, updatedAt: Date.now(), updatedBy: uid || null })
       .then(() => { addLog('Updated the budget'); toast('Budget saved.'); }).catch(handleErr);
   };
+}
+
+/* ---------- Fare table (settings/fares): hand-kept fares the assistant uses; defaults to the plan's transit costs ---------- */
+let fares = null, faresDirty = false;
+function fareRows() {
+  if (fares && Array.isArray(fares.rows)) return fares.rows;
+  return live().filter(i => i.cat === 'transit' && typeof i.cost === 'number' && i.cost > 0 && i.cur !== 'USD')
+    .map(i => ({ leg: i.title, mode: '', jpy: i.cost, note: (GROUPS.find(g => g.id === i.group) || {}).when || '' }));
+}
+function renderFares(force) {
+  const t = $('#fareTable'), acts = $('#fareActions'); if (!t || (faresDirty && !force)) return;
+  t.textContent = ''; acts.textContent = '';
+  const head = el('tr'); ['Leg', 'Mode', '¥ for both', 'Note', ''].forEach(h => head.append(el('th', null, h))); t.append(head);
+  const rows = fareRows().map(r => ({ ...r }));
+  const draw = () => {
+    t.querySelectorAll('tr.r').forEach(r => r.remove());
+    rows.forEach((r, k) => {
+      const tr = el('tr', 'r');
+      const cell = (key, cls, type) => { const td = el('td', cls || null); const inp = el('input'); inp.value = r[key] == null ? '' : r[key]; if (type) inp.type = type; inp.disabled = !canWrite; inp.setAttribute('aria-label', key); inp.oninput = () => { r[key] = type === 'number' ? Number(inp.value) || 0 : inp.value; faresDirty = true; }; td.append(inp); tr.append(td); };
+      cell('leg'); cell('mode'); cell('jpy', 'n', 'number'); cell('note');
+      const x = el('td', 'x'); if (canWrite) x.append(iconBtn('trash', 'Remove fare', () => { rows.splice(k, 1); faresDirty = true; draw(); }, 'danger')); tr.append(x);
+      t.append(tr);
+    });
+  };
+  draw();
+  if (canWrite) {
+    const add = el('button', 'chip plus'); add.type = 'button'; withIcon(add, 'plus', 'Add fare'); add.onclick = () => { rows.push({ leg: '', mode: '', jpy: 0, note: '' }); faresDirty = true; draw(); };
+    const save = el('button', 'btn sm', 'Save fares'); save.type = 'button';
+    save.onclick = () => { faresDirty = false; db.doc('settings/fares').set({ rows: rows.filter(r => r.leg.trim()).map(r => ({ leg: String(r.leg).slice(0, 120), mode: String(r.mode || '').slice(0, 60), jpy: Math.max(0, Math.round(Number(r.jpy) || 0)), note: String(r.note || '').slice(0, 120) })), updatedAt: Date.now() }).then(() => { addLog('Updated the fare table'); toast('Fares saved.'); }).catch(handleErr); };
+    acts.append(add, save);
+  }
+  if (features.assistant && canWrite) {
+    const opt = el('button', 'btn secondary sm'); opt.type = 'button'; withIcon(opt, 'chat', 'Find savings across the trip');
+    opt.onclick = () => modules.explore && modules.explore.ask('Find savings across the whole trip: nights to move between cities, day trips to swap (for example Nara for Himeji), and whether a regional rail pass beats the fares in my fare table. Give concrete changes with the money and time each saves.');
+    acts.append(opt);
+  }
 }
 
 /* ---------- Locations ---------- */
@@ -1146,6 +1183,7 @@ async function boot() {
     renderSettingsForm(false);
     render();
   }, () => {});
+  db.doc('settings/fares').onSnapshot(snap => { fares = snap.exists ? snap.data() : null; renderFares(false); }, () => {});
   db.collection('expenses').onSnapshot(snap => { expenses = snap.docs.map(s => Object.assign({ id: s.id }, s.data())); renderMoney(); }, () => {});
   db.collection('items').onSnapshot(snap => {
     items = snap.docs.map(s => Object.assign({ id: s.id }, s.data()));

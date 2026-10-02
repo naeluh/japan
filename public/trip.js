@@ -1,42 +1,101 @@
 // Trip facts and pure helpers shared by the page (app.js) and the server functions (api/*.js import this file).
-export const TRIP = { title: 'Japan, April 2027', start: '2027-04-01', end: '2027-04-14', adults: 2 };
+export const TRIP = { title: 'Japan, April 2027', start: '2027-04-01', end: '2027-04-14', adults: 2, airport: { name: 'Narita', lat: 35.772, lng: 140.393 } };
+// start and end are the booked flights: the route editor warns when the plan's last day moves off TRIP.end.
 export const TRAVELERS = ['Kristin', 'Nick'];
 
-export const CHAPTERS = [
-  { id: 'book', name: 'Book ahead', place: 'Reservations with deadlines', dates: '', station: null },
-  { id: 'c1', name: 'Neon Tokyo', place: 'Shibuya: Cerulean Tower, then Trunk', dates: 'Apr 1–4', station: 'Tokyo' },
-  { id: 'c2', name: 'The old mountain road', place: 'Hakone: Matsuzakaya Honten', dates: 'Apr 4–6', station: 'Hakone' },
-  { id: 'c3', name: 'Temples at the edges of the day', place: 'Kyoto: Higashiyama', dates: 'Apr 6–10', station: 'Kyoto' },
-  { id: 'c4', name: 'The art islands', place: 'Naoshima and Teshima', dates: 'Apr 10–12', station: 'Naoshima' },
-  { id: 'c5', name: 'Old Tokyo and home', place: 'Yanaka and Kuramae', dates: 'Apr 12–14', station: 'Tokyo' }
-];
-export const GROUPS = [
+/* ---------- Route: cities, nights and days. Stored in settings/route; a database without one uses DEFAULT_ROUTE. ----------
+   Nights in a city = its number of days. The fly-home day (home) always comes last, inside the last city.
+   Items point at a day id (item.group); an item whose day is gone shows under "Not on a day yet". */
+export const BOOK_CHAPTER = { id: 'book', name: 'Book ahead', place: 'Reservations with deadlines', dates: '', station: null };
+export const BOOK_GROUPS = [
   { id: 'b-now', ch: 'book', when: 'Now', what: 'Hotels and bags' },
   { id: 'b-march', ch: 'book', when: 'Early March', what: 'About a month out' },
   { id: 'b-feb', ch: 'book', when: 'Feb 4, 5:00 PM Pacific', what: 'Naoshima timed tickets open' },
-  { id: 'b-fly', ch: 'book', when: 'Before you fly', what: 'Last details' },
-  { id: 'd01', ch: 'c1', when: 'Thu Apr 1', what: 'Land and look down on the city' },
-  { id: 'd02', ch: 'c1', when: 'Fri Apr 2', what: 'Paper, fossils and a river of blossoms' },
-  { id: 'd03', ch: 'c1', when: 'Sat Apr 3', what: 'Digital worlds and the parasite museum' },
-  { id: 'd04', ch: 'c2', when: 'Sun Apr 4', what: 'Into the mountains' },
-  { id: 'd05', ch: 'c2', when: 'Mon Apr 5', what: 'The Hakone loop, on foot and by boat' },
-  { id: 'd06', ch: 'c3', when: 'Tue Apr 6', what: 'A thousand gates at dusk' },
-  { id: 'd07', ch: 'c3', when: 'Wed Apr 7', what: 'The 6 AM city' },
-  { id: 'd08', ch: 'c3', when: 'Thu Apr 8', what: 'Bamboo, stone monks and late cherries' },
-  { id: 'd09', ch: 'c3', when: 'Fri Apr 9', what: 'Nara day trip' },
-  { id: 'd10', ch: 'c4', when: 'Sat Apr 10', what: 'Underground Monet and the yellow pumpkin' },
-  { id: 'd11', ch: 'c4', when: 'Sun Apr 11', what: 'Sit in the dark, then hear heartbeats' },
-  { id: 'd12', ch: 'c5', when: 'Mon Apr 12', what: 'Leave by sea, sunset steps' },
-  { id: 'd13', ch: 'c5', when: 'Tue Apr 13', what: 'Last full day' },
-  { id: 'd14', ch: 'c5', when: 'Wed Apr 14', what: 'Fly home' }
+  { id: 'b-fly', ch: 'book', when: 'Before you fly', what: 'Last details' }
 ];
-export const GROUP_DATE = {
-  d01: '2027-04-01', d02: '2027-04-02', d03: '2027-04-03', d04: '2027-04-04', d05: '2027-04-05', d06: '2027-04-06', d07: '2027-04-07',
-  d08: '2027-04-08', d09: '2027-04-09', d10: '2027-04-10', d11: '2027-04-11', d12: '2027-04-12', d13: '2027-04-13', d14: '2027-04-14'
+export const DEFAULT_ROUTE = {
+  stops: [
+    { id: 'c1', city: 'Tokyo', area: 'Shibuya', name: 'Neon Tokyo', place: 'Shibuya: Cerulean Tower, then Trunk', lat: 35.66, lng: 139.70,
+      days: [{ id: 'd01', what: 'Land and look down on the city' }, { id: 'd02', what: 'Paper, fossils and a river of blossoms' }, { id: 'd03', what: 'Digital worlds and the parasite museum' }] },
+    { id: 'c2', city: 'Hakone', name: 'The old mountain road', place: 'Hakone: Matsuzakaya Honten', lat: 35.23, lng: 139.05,
+      days: [{ id: 'd04', what: 'Into the mountains' }, { id: 'd05', what: 'The Hakone loop, on foot and by boat' }] },
+    { id: 'c3', city: 'Kyoto', name: 'Temples at the edges of the day', place: 'Kyoto: Higashiyama', lat: 35.00, lng: 135.77,
+      days: [{ id: 'd06', what: 'A thousand gates at dusk' }, { id: 'd07', what: 'The 6 AM city' }, { id: 'd08', what: 'Bamboo, stone monks and late cherries' }, { id: 'd09', what: 'Nara day trip' }] },
+    { id: 'c4', city: 'Naoshima', name: 'The art islands', place: 'Naoshima and Teshima', lat: 34.46, lng: 133.99, island: true,
+      days: [{ id: 'd10', what: 'Underground Monet and the yellow pumpkin' }, { id: 'd11', what: 'Sit in the dark, then hear heartbeats' }] },
+    { id: 'c5', city: 'Tokyo', area: 'Yanaka', name: 'Old Tokyo and home', place: 'Yanaka and Kuramae', lat: 35.72, lng: 139.77,
+      days: [{ id: 'd12', what: 'Leave by sea, sunset steps' }, { id: 'd13', what: 'Last full day' }] }
+  ],
+  home: { id: 'd14', what: 'Fly home' }
 };
-export const CH_COORD = { c1: [35.66, 139.70], c2: [35.23, 139.05], c3: [35.00, 135.77], c4: [34.46, 133.99], c5: [35.72, 139.77] };
-export const CH_CITY = { c1: 'Tokyo', c2: 'Hakone', c3: 'Kyoto', c4: 'Naoshima', c5: 'Tokyo' };
+
+/* The trust boundary for settings/route (the page and the price watch both read it). Never mutates its input.
+   Ids come in fixed shapes so a stop or day id can't collide with Book ahead ids or the page's element ids. */
+const STOP_ID = /^(c\d{1,3}|city-[a-z0-9]{4,20})$/, DAY_ID = /^(d\d{1,3}|day-[a-z0-9]{4,20})$/;
+const txt = (v, n) => typeof v === 'string' ? v.trim().slice(0, n) : '';
+const inJapan = (la, lo) => typeof la === 'number' && typeof lo === 'number' && la >= 20 && la <= 46 && lo >= 122 && lo <= 154;
+export function cleanRoute(doc) {
+  if (!doc || typeof doc !== 'object' || !Array.isArray(doc.stops)) return DEFAULT_ROUTE;
+  const seen = new Set(); let total = 0;
+  const day = (d) => d && typeof d === 'object' && typeof d.id === 'string' && DAY_ID.test(d.id) && !seen.has(d.id) ? (seen.add(d.id), { id: d.id, what: txt(d.what, 120) }) : null;
+  const stops = [];
+  for (const s of doc.stops.slice(0, 12)) {
+    if (!s || typeof s !== 'object' || typeof s.id !== 'string' || !STOP_ID.test(s.id) || seen.has(s.id) || !txt(s.city, 60)) continue;
+    if (!Array.isArray(s.days) || s.days.length > 30) continue;
+    seen.add(s.id);
+    const days = s.days.map(day).filter(Boolean);
+    if (!days.length || total + days.length > 90) continue;
+    total += days.length;
+    const out = { id: s.id, city: txt(s.city, 60), name: txt(s.name, 120), place: txt(s.place, 120), lat: null, lng: null, days };
+    if (txt(s.area, 60)) out.area = txt(s.area, 60);
+    if (inJapan(s.lat, s.lng)) { out.lat = s.lat; out.lng = s.lng; }
+    if (s.island === true) out.island = true;
+    stops.push(out);
+  }
+  if (!stops.length) return DEFAULT_ROUTE;
+  const home = day(doc.home) || day(DEFAULT_ROUTE.home) || { id: 'day-home', what: 'Fly home' };
+  return { stops, home };
+}
+
+const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const utc = (iso) => new Date(iso + 'T00:00:00Z');
+export function addDays(iso, n) { const t = utc(iso); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); }
+export function dayLabel(iso) { const t = utc(iso); return DOW[t.getUTCDay()] + ' ' + MON[t.getUTCMonth()] + ' ' + t.getUTCDate(); }   // Thu Apr 1
+export function monthDay(iso) { const t = utc(iso); return MON[t.getUTCMonth()] + ' ' + t.getUTCDate(); }                          // Apr 1
+export function dateRange(a, b) { return utc(a).getUTCMonth() === utc(b).getUTCMonth() ? monthDay(a) + '–' + utc(b).getUTCDate() : monthDay(a) + '–' + monthDay(b); }
+
+/* Route doc -> everything the page and the price watch derive from it. Pure: the server calls it per run. */
+export function buildTrip(doc) {
+  const route = cleanRoute(doc);
+  const chapters = [BOOK_CHAPTER], groups = [...BOOK_GROUPS], groupDate = {}, chCoord = {}, chCity = {};
+  let k = 0;
+  route.stops.forEach((s, si) => {
+    const first = addDays(TRIP.start, k);
+    for (const d of s.days) { const date = addDays(TRIP.start, k); groupDate[d.id] = date; groups.push({ id: d.id, ch: s.id, when: dayLabel(date), what: d.what, date, n: k + 1 }); k++; }
+    chapters.push({ id: s.id, name: s.name, place: s.place, station: s.city, area: s.area || '', n: si + 1, nights: s.days.length,
+      first, dates: dateRange(first, addDays(TRIP.start, k)), lat: s.lat, lng: s.lng, island: !!s.island });
+    if (s.lat != null) chCoord[s.id] = [s.lat, s.lng];
+    chCity[s.id] = s.city;
+  });
+  const end = addDays(TRIP.start, k);
+  groupDate[route.home.id] = end;
+  groups.push({ id: route.home.id, ch: route.stops[route.stops.length - 1].id, when: dayLabel(end), what: route.home.what, date: end, n: k + 1, home: true });
+  return { route, chapters, groups, groupDate, chCoord, chCity, start: TRIP.start, end, nights: k };
+}
+
+/* The page's current route, as live bindings: modules that import these see every useRoute() at once.
+   Never copy them into module-level constants; derive lists inside functions. */
+export let CHAPTERS, GROUPS, GROUP_DATE, CH_COORD, CH_CITY, ROUTE, TRIP_END, TRIP_NIGHTS;
+export function useRoute(doc) {
+  const t = buildTrip(doc);
+  CHAPTERS = t.chapters; GROUPS = t.groups; GROUP_DATE = t.groupDate; CH_COORD = t.chCoord; CH_CITY = t.chCity;
+  ROUTE = t.route; TRIP_END = t.end; TRIP_NIGHTS = t.nights;
+  return t;
+}
+useRoute(null);
 export const groupCh = (g) => { const x = GROUPS.find(G => G.id === g); return x ? x.ch : null; };
+/* A hotel the price watch follows: lodging with a hotel name, nights, and a day that still exists. */
+export function isStay(i, gd = GROUP_DATE) { return !i.disabled && i.cat === 'lodging' && !!i.hotelQuery && i.nights > 0 && !!gd[i.group]; }
 
 /* Sale openings are stored as "YYYY-MM-DDTHH:MM" in Japan time, or "YYYY-MM-DD". Returns epoch ms. */
 export function opensAt(s) {

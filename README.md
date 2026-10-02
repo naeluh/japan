@@ -8,11 +8,23 @@ The look and interactions follow the Kuzic design system (Geist type, warm light
 
 | Screen | What it does |
 | --- | --- |
-| **Plan** | The timeline: chapters, day cards with weather, walking times between stops (red when a walk is longer than the gap), day maps, priorities, costs, booking links and confirmation codes. Free gaps of 45 minutes or more offer **Find something nearby**. **Check opening hours** flags stops that may be closed when you plan to be there. |
+| **Plan** | The timeline, one section per city: a numbered bar (matching its pin on the map) sticks to the top while you scroll through that city, with its dates and nights; day cards lead with the date ("Day 6 · Tue Apr 6"). **Book ahead** is a separate checklist of deadlines. Day cards show weather, walking times between stops (red when a walk is longer than the gap), day maps, costs, booking links and confirmation codes; the colored stripe shows priority (change it with the dots on a computer, or in Edit). **Change cities and nights** adds or removes cities and changes how long you stay in each. Free gaps of 45 minutes or more offer **Find something nearby**. **Check opening hours** flags stops that may be closed when you plan to be there. |
 | **Today** | Phone-first travel-day view: the next stop with walking time, directions and booking code, tonight's hotel, the day's checklist, and quick expense logging. Before the trip it previews April 1. |
 | **Deals** | The price watch on every stay: live Rakuten price against the plan, lowest price seen, your alert price, what shifting the stay a day earlier or later would cost, meals-included compared fairly with eating out, links to book direct, prefilled searches on Booking.com, Google, Jalan, Ikyu and Rakuten, check history, and sale dates with calendar reminders. |
 | **Explore** | **Nearby**: unusual places near any stop (old shops, small museums, bathhouses, heritage sites) ranked by a uniqueness score, open at the time you pick, within a short walk. **Search**: prefilled searches for the day and stop you pick: Google Maps (things to do, cafés, restaurants, old shops, bathhouses, anything you type), Tabelog, events and cherry-blossom forecasts, and hotel sites for that night. |
 | **Money** | Budget by category, biggest costs, spending log (who paid, who it was for), who owes whom, the fare table, and budget, exchange-rate and meal-cost settings. |
+
+Prices show dollars first with the yen beside them ($51 · ¥8,000) everywhere: the plan, hotel prices, Deals, the spending log, the fare table and price-alert emails.
+
+## Changing the route
+
+**Change cities and nights** (under the station strip, or the pencil on any city bar) opens one sheet for the whole route: a − / + stepper for the nights in each city, a remove button (with Undo until you save), and **Add a city**, which finds the city on OpenStreetMap so it gets a map pin, weather and Explore. The top line shows the trip length and end date as you go, with a warning when the plan no longer ends on the day your flight home leaves, and it lists hotel check-ins whose date would move. Nothing changes until **Save route**.
+
+- Adding nights adds empty days at the end of that city's stay; later cities move later.
+- Removing nights takes days off the end of the stay. Their to-dos are never deleted: they wait under **Not on a day yet** at the bottom of the plan. Edit one and pick a day in the new **Day** field (any to-do can move to another day the same way).
+- Hotel bookings don't change themselves. A city whose hotels on the plan cover fewer nights than the stay says so ("Hotels cover 4 of 5 nights"), and the nightly price watch checks every stay on its new dates.
+- The start date stays fixed (it's your flight). Cities can't be reordered (remove one and add it back), and day titles for new days read "Free day in …".
+- The route is stored as one document, `settings/route`. A database without one (every plan before this version) uses the original route, so nothing needs migrating.
 
 ## Live data and where it comes from
 
@@ -95,7 +107,7 @@ Without `DATABASE_URL` the dev server keeps data in `.local-db.json` (`LOCAL_DB_
 
 - `public/index.html`, `app.css`, `app.js`: the page, the design tokens and components, and the core (sync, Plan, Money, sheets, routing).
 - `public/deals.js`, `explore.js`, `today.js`: the Deals, Explore (Nearby and Search) and Today screens.
-- `public/trip.js`: trip facts and pure helpers shared by the page and the server (days, dates, search links, taste profile, settle-up, sale dates).
+- `public/trip.js`: trip facts and pure helpers shared by the page and the server: the default route and the route builder (`cleanRoute`, `buildTrip`; cities, nights, days and dates come from `settings/route`), search links, taste profile, settle-up, sale dates.
 - `public/shim.js`: connects the page to the API: key handling, 5-second sync, offline copy and outbox.
 - `public/sw.js`, `manifest.webmanifest`, icons: the installable offline app.
 - `api/db.js`: stores the plan in Postgres. Open to anyone unless `EDIT_KEY` is set, in which case reads and writes need it.

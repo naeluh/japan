@@ -2,17 +2,15 @@
 // POST {itemId?} with the edit key checks now. Results go to watch/<itemId> docs, which sync to every open page.
 import crypto from 'node:crypto';
 import { send, fail, access, body, same } from './_lib/http.js';
-import { readAll, writeDoc } from './_lib/store.js';
+import { readAll, writeDoc, cacheGet } from './_lib/store.js';
 import { priceStay, rakutenReady, addDays, RakutenError } from './_lib/rakuten.js';
 import { applyCheck, flexFrom, dueReminders } from './_lib/alerts.js';
 import { sendMail } from './_lib/mail.js';
-import { GROUP_DATE, TRIP } from '../public/trip.js';
+import { TRIP, buildTrip, isStay } from '../public/trip.js';
 
 const BUDGET_MS = 240e3; // stop starting new checks before the 300 s function limit; the rest run tomorrow
 const newId = () => Date.now().toString(36) + crypto.randomBytes(4).toString('hex');
 const jst = (ms, timed = true) => new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tokyo', month: 'short', day: 'numeric', ...(timed ? { hour: 'numeric', minute: '2-digit' } : {}) }).format(new Date(ms)) + (timed ? ' Japan time' : '');
-
-export function isStay(i) { return !i.disabled && i.cat === 'lodging' && !!i.hotelQuery && i.nights > 0 && !!GROUP_DATE[i.group]; }
 
 export default async function handler(req, res) {
   const cron = req.method === 'GET';
@@ -28,17 +26,25 @@ export default async function handler(req, res) {
   try {
     const { docs } = await readAll();
     const items = Object.entries(docs).filter(([p]) => p.startsWith('items/')).map(([p, v]) => ({ id: p.slice(6), ...v }));
-    const stays = items.filter(i => isStay(i) && (!opts.itemId || i.id === opts.itemId));
+    const { groupDate } = buildTrip(docs['settings/route']);   // the route as saved, so a changed stay is checked on its new dates
+    const stays = items.filter(i => isStay(i, groupDate) && (!opts.itemId || i.id === opts.itemId));
     const alerts = [], checked = [], skipped = [], failed = [];
+    // Dollars in alert texts at the rate the page uses: today's (if cached) unless the budget says fixed, else the fixed one.
+    // ponytail: the fx cache lives 6 h, so at 06:00 JST this is usually the fixed rate; fetch fx here if the gap matters.
+    const budget = docs['settings/budget'] || {};
+    const fx = budget.useLive !== false ? await cacheGet('fx:usdjpy').catch(() => null) : null;
+    const rate = (fx && fx.rate) || Number(budget.rate) || 155;
     if (rakutenReady()) for (const i of stays) {
       if (Date.now() - started > BUDGET_MS) { skipped.push(i.id); continue; }
-      const prev = docs['watch/' + i.id] || null;
-      const checkin = GROUP_DATE[i.group], checkout = addDays(checkin, i.nights);
+      const checkin = groupDate[i.group], checkout = addDays(checkin, i.nights);
+      const stored = docs['watch/' + i.id] || null;
+      // Dates moved (route or nights changed): start the history fresh, keeping only which hotel it is.
+      const prev = stored && stored.checkin && (stored.checkin !== checkin || stored.nights !== i.nights) ? { hotelNo: stored.hotelNo || '', hotelName: stored.hotelName || '' } : stored;
       const hotelNo = (prev && prev.hotelNo) || (i.live && i.live.hotelNo) || '';
       try {
         const base = await priceStay({ name: i.hotelQuery, hotelNo, checkin, checkout, adults: TRIP.adults, fresh: true });
         const title = base.hotelName || (prev && prev.hotelName) || i.title;
-        const { doc, alerts: found } = applyCheck(prev, base, { title, target: i.target ?? null, day });
+        const { doc, alerts: found } = applyCheck(prev, base, { title, target: i.target ?? null, day, rate });
         Object.assign(doc, { itemId: i.id, checkin, nights: i.nights });
         if (base.found && base.hotelNo) {
           const shift = (n) => priceStay({ hotelNo: base.hotelNo, checkin: addDays(checkin, n), checkout: addDays(checkout, n), adults: TRIP.adults, fresh: true }).catch(() => null);
@@ -48,7 +54,7 @@ export default async function handler(req, res) {
         alerts.push(...found); checked.push(i.id);
       } catch (e) {
         console.error(e); failed.push(i.id);
-        await writeDoc('watch/' + i.id, { ...(prev || {}), itemId: i.id, error: e instanceof RakutenError ? e.message : 'The check failed; it runs again tomorrow.', checkedAt: Date.now() });
+        await writeDoc('watch/' + i.id, { ...(prev || {}), itemId: i.id, checkin, nights: i.nights, error: e instanceof RakutenError ? e.message : 'The check failed; it runs again tomorrow.', checkedAt: Date.now() });
       }
     }
     const meta = docs['watch/_meta'] || {};

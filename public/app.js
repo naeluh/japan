@@ -1,5 +1,5 @@
 /* Japan trip planner: core (sync, plan, money, sheets, routing). Feature screens live in their own modules. */
-import { TRIP, TRAVELERS, CHAPTERS, GROUPS, GROUP_DATE, CH_COORD, CH_CITY, groupCh, opensAt, settle } from './trip.js';
+import { TRIP, TRAVELERS, CHAPTERS, GROUPS, GROUP_DATE, CH_COORD, CH_CITY, TRIP_END, TRIP_NIGHTS, ROUTE, groupCh, opensAt, settle, useRoute, buildTrip, cleanRoute, dateRange, dayLabel } from './trip.js';
 
 const PRIOS = ['high', 'medium', 'low'];
 const PLABEL = { high: 'High', medium: 'Medium', low: 'Low' };
@@ -171,6 +171,7 @@ function show(id, anchor) {
   document.querySelectorAll('[data-screen]').forEach(s => { s.hidden = s.dataset.screen !== id; });
   document.querySelectorAll('[data-nav]').forEach(n => { if (n.dataset.nav === id) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current'); });
   if (modules[id] && modules[id].render) modules[id].render();
+  if (id === 'plan' && changed) requestAnimationFrame(renderMap);
   if (anchor) { const t = document.getElementById(anchor); if (t) requestAnimationFrame(() => t.scrollIntoView({ block: 'start' })); }
   else if (changed) scrollTo(0, 0);
 }
@@ -185,12 +186,9 @@ function route() {
 addEventListener('popstate', route);
 addEventListener('hashchange', route);
 
-/* ---------- Route line + overview map ---------- */
-let mapCentered = false;
+/* ---------- Route line + overview map (both drawn from the route) ---------- */
 function renderRoute() {
   renderMap();
-  const ms = $('.mapscroll'); // phones see a slice of the map: start it centered on the route
-  if (!mapCentered && ms && ms.scrollWidth > ms.clientWidth) { ms.scrollLeft = (ms.scrollWidth - ms.clientWidth) * 0.85; mapCentered = true; }
   const ol = $('#route'); ol.textContent = '';
   CHAPTERS.filter(c => c.station).forEach(c => {
     const li = el('li'); const a = el('a'); a.href = '#' + c.id;
@@ -198,21 +196,15 @@ function renderRoute() {
     const mine = live().filter(i => groupCh(i.group) === c.id);
     const open = mine.filter(i => i.priority === 'high' && !i.done).length;
     const dn = mine.filter(i => i.done).length;
-    a.append(el('span', 'name', c.station), el('span', 'dates', c.dates),
+    const name = el('span', 'name'); name.append(el('span', 'stopnum', String(c.n)), document.createTextNode(c.station));
+    a.append(name, el('span', 'dates', c.dates),
       el('span', 'prog', loaded && mine.length ? dn + ' of ' + mine.length + ' done' : ''),
       el('span', 'open', loaded && open ? open + ' high open' : ''));
-    a.setAttribute('aria-label', c.station + ', ' + c.dates + (open ? ', ' + open + ' high-priority items open' : ''));
+    a.setAttribute('aria-label', c.n + '. ' + c.station + ', ' + c.dates + (open ? ', ' + open + ' high-priority items open' : ''));
     li.append(a); ol.append(li);
   });
 }
 function scrollToId(id) { const t = document.getElementById(id); if (t) t.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); }
-const PINS = [
-  { ch: 'c1', name: 'Shibuya', x: 656, y: 178, lx: 668, ly: 204, anchor: 'start' },
-  { ch: 'c5', name: 'Yanaka', x: 672, y: 148, lx: 686, ly: 106, anchor: 'start' },
-  { ch: 'c2', name: 'Hakone', x: 600, y: 220, lx: 600, ly: 252, anchor: 'middle' },
-  { ch: 'c3', name: 'Kyoto', x: 292, y: 245, lx: 292, ly: 186, anchor: 'middle' },
-  { ch: 'c4', name: 'Naoshima', x: 123, y: 308, lx: 123, ly: 340, anchor: 'middle' }
-];
 function chStatus(chId) {
   const mine = live().filter(i => groupCh(i.group) === chId);
   const open = mine.filter(i => !i.done);
@@ -223,29 +215,64 @@ function chStatus(chId) {
   else if (mine.length) st = 'done';
   return { st, mine, open, high: open.filter(i => i.priority === 'high').length, done: mine.length - open.length };
 }
+/* The overview map: the airport and every city with coordinates, framed to fit, sized for the screen it's on.
+   ponytail: the coastline covers roughly Kansai to Kanto; a city outside it gets its pin over open sea. */
 function renderMap() {
-  const g = $('#pins'); if (!g) return; g.textContent = '';
-  PINS.forEach(p => {
-    const c = CHAPTERS.find(x => x.id === p.ch);
-    const s = loaded ? chStatus(p.ch) : { st: 'none', mine: [], open: [], high: 0, done: 0 };
-    const pin = sv('g', { class: 'pin' });
-    const a = sv('a', { href: '#' + p.ch, tabindex: '0' });
-    const desc = p.name + ', ' + c.dates + (loaded ? ': ' + s.done + ' of ' + s.mine.length + ' done' + (s.high ? ', ' + s.high + ' high-priority open' : '') : '');
+  const svg = $('#map'), g = $('#pins'), legs = $('#legs'); if (!svg || !g || !legs) return;
+  const w = svg.clientWidth; if (!w) return;   // Plan is hidden: it draws when shown
+  g.textContent = ''; legs.textContent = '';
+  const stops = CHAPTERS.filter(c => c.station && c.lat != null);
+  const A = proj(TRIP.airport.lat, TRIP.airport.lng);
+  const P = stops.map(c => proj(c.lat, c.lng));
+  const xs = [A[0], ...P.map(p => p[0])], ys = [A[1], ...P.map(p => p[1])];
+  const bw = Math.max(...xs) - Math.min(...xs), s0 = (bw + 140) / w, px = 50 * s0, py = 34 * s0;   // margins in screen pixels, room for edge labels
+  const x0 = Math.min(...xs) - px, x1 = Math.max(...xs) + px, y0 = Math.min(...ys) - py, y1 = Math.max(...ys) + py;
+  const vw = Math.max(x1 - x0, 300), vh = Math.max(y1 - y0, vw * (w < 560 ? 0.62 : 0.5));
+  const vb = [(x0 + x1 - vw) / 2, (y0 + y1 - vh) / 2, vw, vh];
+  svg.setAttribute('viewBox', vb.join(' '));
+  const sc = vw / w;   // viewBox units per screen pixel: sizes below are in screen pixels
+  const R = 10 * sc;
+  const pos = P.map(p => p.slice());   // two stops in one city (or a stop by the airport) sit on top of each other: push them apart
+  for (let pass = 0; pass < 6; pass++) pos.forEach((p, i) => { for (const q of [A, ...pos.filter((_, j) => j !== i)]) {
+    const dx = p[0] - q[0], dy = p[1] - q[1], d = Math.hypot(dx, dy), min = 2.4 * R;
+    if (d < min) { const ux = d ? dx / d : 0, uy = d ? dy / d : -1; p[0] = q[0] + ux * min; p[1] = q[1] + uy * min; }
+  } });
+  const curve = (p, q, cls) => {   // a gentle arc, bowed north
+    const dx = q[0] - p[0], dy = q[1] - p[1], len = Math.hypot(dx, dy) || 1;
+    let nx = -dy / len, ny = dx / len; if (ny > 0) { nx = -nx; ny = -ny; }
+    const k = 0.14 * len, cx = (p[0] + q[0]) / 2 + nx * k, cy = (p[1] + q[1]) / 2 + ny * k;
+    legs.append(sv('path', { class: 'leg ' + cls, d: 'M' + p.join(',') + ' Q' + cx + ',' + cy + ' ' + q.join(',') }));
+  };
+  [A, ...pos].forEach((p, i, all) => { if (i) curve(all[i - 1], p, 'out'); });
+  if (pos.length) curve(pos[pos.length - 1], A, 'home');
+  const placed = [A, ...pos].map(([x, y]) => ({ x0: x - 14 * sc, y0: y - 14 * sc, x1: x + 14 * sc, y1: y + 14 * sc }));
+  const air = sv('g', { class: 'minor', 'aria-hidden': 'true' });
+  air.append(sv('circle', { cx: A[0], cy: A[1], r: 4.5 * sc }));
+  const an = TRIP.airport.name, at = labelSpot(A[0], A[1], an.length * 7.5 * sc, 14 * sc, 10 * sc, placed, vb);
+  air.append(sv('text', { x: at.x, y: at.top + 11 * sc, 'text-anchor': at.a, 'font-size': 12 * sc, 'stroke-width': 3.5 * sc }, an));
+  g.append(air);
+  stops.forEach((c, i) => {
+    const [x, y] = pos[i];
+    const s = loaded ? chStatus(c.id) : { st: 'none', mine: [], open: [], high: 0, done: 0 };
+    const name = c.area || c.station;
+    const a = sv('a', { href: '#' + c.id, tabindex: '0', class: 'pin' });
+    const desc = c.n + '. ' + name + ', ' + c.dates + (loaded ? ': ' + s.done + ' of ' + s.mine.length + ' done' + (s.high ? ', ' + s.high + ' high-priority open' : '') : '');
     a.setAttribute('aria-label', desc);
     a.append(sv('title', {}, desc));
-    a.append(sv('circle', { class: 'ring ' + s.st, cx: p.x, cy: p.y, r: 10 }));
-    if (s.st === 'done') a.append(sv('path', { class: 'tick', d: 'M' + (p.x - 4.5) + ',' + p.y + ' l3,3.5 l6,-7' }));
-    a.append(sv('text', { class: 'nm', x: p.lx, y: p.ly, 'text-anchor': p.anchor }, p.name));
-    a.append(sv('text', { class: 'dt', x: p.lx, y: p.ly + 16, 'text-anchor': p.anchor }, c.dates));
-    if (loaded && s.mine.length) {
-      const label = s.st === 'done' ? 'All done' : s.high ? s.high + ' high open' : s.done + ' of ' + s.mine.length + ' done';
-      a.append(sv('text', { class: 'st ' + s.st, x: p.lx, y: p.ly + 31, 'text-anchor': p.anchor }, label));
-    }
-    a.addEventListener('click', ev => { ev.preventDefault(); scrollToId(p.ch); });
-    a.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); scrollToId(p.ch); } });
-    pin.append(a); g.append(pin);
+    a.append(sv('circle', { class: 'ring ' + s.st, cx: x, cy: y, r: R }));
+    if (s.st === 'done') a.append(sv('path', { class: 'tick', d: 'M' + (x - 4.5 * sc) + ',' + y + ' l' + 3 * sc + ',' + 3.5 * sc + ' l' + 6 * sc + ',' + (-7 * sc) }));
+    else a.append(sv('text', { class: 'k', x, y, 'font-size': 11 * sc }, String(c.n)));
+    const dated = w >= 560;   // phones: names only (the dates are in the strip just below)
+    const tw = Math.max(name.length * 10.2, dated ? c.dates.length * 7.6 : 0) * sc, l = labelSpot(x, y, tw, (dated ? 32 : 17) * sc, 14 * sc, placed, vb);
+    a.append(sv('text', { class: 'nm', x: l.x, y: l.top + 13 * sc, 'text-anchor': l.a, 'font-size': 15 * sc, 'stroke-width': 4 * sc }, name));
+    if (dated) a.append(sv('text', { class: 'dt', x: l.x, y: l.top + 29 * sc, 'text-anchor': l.a, 'font-size': 12 * sc, 'stroke-width': 4 * sc }, c.dates));
+    a.addEventListener('click', ev => { ev.preventDefault(); scrollToId(c.id); });
+    a.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); scrollToId(c.id); } });
+    g.append(a);
   });
 }
+let mapFrame = 0;
+addEventListener('resize', () => { cancelAnimationFrame(mapFrame); mapFrame = requestAnimationFrame(renderMap); });
 
 /* ---------- Money ---------- */
 export const CATS = [
@@ -260,7 +287,7 @@ function rate() { const l = liveRate(); if (l) return Math.round(l * 100) / 100;
 function toUSD(amount, cur) { const a = Number(amount) || 0; return cur === 'USD' ? a : a / rate(); }
 function fUSD(n) { return '$' + Math.round(n).toLocaleString('en-US'); }
 function fJPY(n) { return '¥' + Math.round(n).toLocaleString('en-US'); }
-function fAmt(a, cur) { return cur === 'USD' ? fUSD(a) : fJPY(a); }
+function fAmt(a, cur) { return cur === 'USD' ? fUSD(a) : fUSD(toUSD(a, 'JPY')) + ' · ' + fJPY(a); } // dollars first, yen beside
 function hasCost(i) { return typeof i.cost === 'number' && i.cat; }
 function totals() {
   const t = {}; CATS.forEach(c => t[c.id] = { budget: Number((settings.cats || {})[c.id]) || 0, est: 0, paid: 0 });
@@ -342,7 +369,6 @@ async function renderExpenses() {
   expenses.slice().sort((a, b) => (b.at || 0) - (a.at || 0)).forEach(e => {
     const li = el('li');
     li.append(el('span', 'amt', fAmt(e.amount, e.cur)));
-    if (e.cur !== 'USD') li.append(el('span', 'meta', '≈ ' + fUSD(toUSD(e.amount, e.cur))));
     li.append(el('span', 'grow', e.note || 'Expense'));
     const cat = CATS.find(c => c.id === e.cat);
     const p = e.by && names[e.by];
@@ -434,14 +460,15 @@ function fareRows() {
 function renderFares(force) {
   const t = $('#fareTable'), acts = $('#fareActions'); if (!t || (faresDirty && !force)) return;
   t.textContent = ''; acts.textContent = '';
-  const head = el('tr'); ['Leg', 'Mode', '¥ for both', 'Note', ''].forEach(h => head.append(el('th', null, h))); t.append(head);
+  const head = el('tr'); ['Leg', 'Mode', '¥ for both', '≈ $', 'Note', ''].forEach(h => head.append(el('th', null, h))); t.append(head);
   const rows = fareRows().map(r => ({ ...r }));
   const draw = () => {
     t.querySelectorAll('tr.r').forEach(r => r.remove());
     rows.forEach((r, k) => {
       const tr = el('tr', 'r');
-      const cell = (key, cls, type) => { const td = el('td', cls || null); const inp = el('input'); inp.value = r[key] == null ? '' : r[key]; if (type) inp.type = type; inp.disabled = !canWrite; inp.setAttribute('aria-label', key); inp.oninput = () => { r[key] = type === 'number' ? Number(inp.value) || 0 : inp.value; faresDirty = true; }; td.append(inp); tr.append(td); };
-      cell('leg'); cell('mode'); cell('jpy', 'n', 'number'); cell('note');
+      const cell = (key, cls, type, after) => { const td = el('td', cls || null); const inp = el('input'); inp.value = r[key] == null ? '' : r[key]; if (type) inp.type = type; inp.disabled = !canWrite; inp.setAttribute('aria-label', key); inp.oninput = () => { r[key] = type === 'number' ? Number(inp.value) || 0 : inp.value; faresDirty = true; if (after) after(); }; td.append(inp); tr.append(td); };
+      const usd = el('td', 'usd'); const showUsd = () => { usd.textContent = r.jpy > 0 ? fUSD(toUSD(r.jpy, 'JPY')) : ''; };
+      cell('leg'); cell('mode'); cell('jpy', 'n', 'number', showUsd); tr.append(usd); showUsd(); cell('note');
       const x = el('td', 'x'); if (canWrite) x.append(iconBtn('trash', 'Remove fare', () => { rows.splice(k, 1); faresDirty = true; draw(); }, 'danger')); tr.append(x);
       t.append(tr);
     });
@@ -486,6 +513,19 @@ function routeUrl(stops, mode) {
   if (pts.length > 2) u.searchParams.set('waypoints', pts.slice(1, -1).join('|'));
   return u.href;
 }
+/* Where a label block (w × h) goes beside a point: right, left, above, below, then the corners. The first spot inside
+   the view box that touches nothing already placed wins; failing that, the one that stays inside and touches least.
+   Returns the anchor x, the block's top and the text-anchor. */
+function labelSpot(x, y, w, h, gap, placed, vb) {
+  const opts = [{ a: 'start', x: x + gap, top: y - h / 2 }, { a: 'end', x: x - gap, top: y - h / 2 }, { a: 'middle', x, top: y - gap - h }, { a: 'middle', x, top: y + gap },
+    { a: 'start', x: x + gap * 0.7, top: y - gap * 0.7 - h }, { a: 'end', x: x - gap * 0.7, top: y - gap * 0.7 - h }, { a: 'start', x: x + gap * 0.7, top: y + gap * 0.7 }, { a: 'end', x: x - gap * 0.7, top: y + gap * 0.7 }]
+    .map(o => { const left = o.a === 'start' ? o.x : o.a === 'end' ? o.x - w : o.x - w / 2; return { ...o, b: { x0: left, y0: o.top, x1: left + w, y1: o.top + h } }; });
+  const cost = ({ b }) => placed.filter(o => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0).length
+    + (b.x0 < vb[0] || b.x1 > vb[0] + vb[2] || b.y0 < vb[1] || b.y1 > vb[1] + vb[3] ? 100 : 0);
+  const pick = opts.reduce((best, o) => cost(o) < cost(best) ? o : best);
+  placed.push(pick.b);
+  return pick;
+}
 const openMaps = new Set();
 function renderDayMap(g, list) {
   const stops = list.filter(i => hasPin(i) && i.kind !== 'travel');
@@ -502,11 +542,10 @@ function renderDayMap(g, list) {
   const sc = w / W;
   const svg = sv('svg', { viewBox: vb.join(' '), role: 'img', 'aria-label': 'Map of ' + g.when + ' with ' + stops.length + ' stops; positions are approximate' });
   // The coastline data is too coarse for the small art islands, so they get a plain land background.
-  const island = groupCh(g.id) === 'c4';
+  const island = !!(CHAPTERS.find(c => c.id === groupCh(g.id)) || {}).island;
   svg.append(sv('rect', { x: vb[0], y: vb[1], width: vb[2], height: vb[3], fill: island ? 'var(--land)' : 'var(--sea)' }));
   if (!island) svg.append(sv('use', { href: '#jpLand', class: 'map-land' }));
   const placed = P.map(([x, y]) => ({ x0: x - 12 * sc, y0: y - 12 * sc, x1: x + 12 * sc, y1: y + 12 * sc }));
-  const hit = (b) => placed.some(o => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0) || b.x0 < vb[0] || b.x1 > vb[0] + vb[2] || b.y0 < vb[1] || b.y1 > vb[1] + vb[3];
   if (P.length > 1) svg.append(sv('polyline', { class: 'dm-route', points: P.map(p => p.join(',')).join(' ') }));
   stops.forEach((i, k) => {
     const [x, y] = P[k];
@@ -515,16 +554,8 @@ function renderDayMap(g, list) {
     gp.append(sv('circle', { cx: x, cy: y, r: 11 * sc }));
     const n = sv('text', { class: 'n', x, y }, String(k + 1)); n.setAttribute('font-size', 12 * sc); gp.append(n);
     const lab = (i.place || i.title || '').split(',')[0].slice(0, 28);
-    const tw = lab.length * 6.6 * sc, th = 14 * sc;
-    const opts = [
-      { x: x + 15 * sc, y: y + 4 * sc, a: 'start', b: { x0: x + 14 * sc, y0: y - 8 * sc, x1: x + 14 * sc + tw, y1: y + 6 * sc } },
-      { x: x - 15 * sc, y: y + 4 * sc, a: 'end', b: { x0: x - 14 * sc - tw, y0: y - 8 * sc, x1: x - 14 * sc, y1: y + 6 * sc } },
-      { x, y: y - 16 * sc, a: 'middle', b: { x0: x - tw / 2, y0: y - 16 * sc - th + 3 * sc, x1: x + tw / 2, y1: y - 14 * sc } },
-      { x, y: y + 26 * sc, a: 'middle', b: { x0: x - tw / 2, y0: y + 14 * sc, x1: x + tw / 2, y1: y + 28 * sc } }
-    ];
-    const pick = opts.find(o => !hit(o.b)) || opts[0];
-    placed.push(pick.b);
-    const l = sv('text', { class: 'l', x: pick.x, y: pick.y, 'text-anchor': pick.a }, lab); l.setAttribute('font-size', 12 * sc); l.setAttribute('stroke-width', 3.5 * sc); gp.append(l);
+    const pick = labelSpot(x, y, lab.length * 6.6 * sc, 14 * sc, 14 * sc, placed, vb);
+    const l = sv('text', { class: 'l', x: pick.x, y: pick.top + 11 * sc, 'text-anchor': pick.a }, lab); l.setAttribute('font-size', 12 * sc); l.setAttribute('stroke-width', 3.5 * sc); gp.append(l);
     const goTo = () => flashItem(i.id);
     gp.addEventListener('click', goTo);
     gp.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); goTo(); } });
@@ -548,23 +579,27 @@ let siteLocked = false;   // EDIT_KEY set on the server: links need ?k=
 let liveFx = null;
 function liveRate() { return liveFx && settings.useLive !== false ? liveFx.rate : null; }
 function rerender() { render(); }
-const wx = {}; let wxStarted = false;
+const wx = {}; let wxStarted = false, wxGen = 0;   // wxGen: a load started before the route changed must not write old-date weather
 function fToF(c) { return Math.round(c * 9 / 5 + 32); }
 function dayCoord(gid) {
   const p = live().filter(i => i.group === gid && hasPin(i) && i.kind !== 'travel').sort(byTime)[0];
-  return p ? [p.lat, p.lng] : (CH_COORD[groupCh(gid)] || CH_COORD.c1);
+  if (p) return [p.lat, p.lng];
+  return CH_COORD[groupCh(gid)] || Object.values(CH_COORD)[0] || null;
 }
 async function loadWeather() {
   if (wxStarted || !loaded) return; wxStarted = true;
+  const gen = wxGen;
   const byLoc = {};
   Object.keys(GROUP_DATE).forEach(gid => {
-    const [la, lo] = dayCoord(gid); const k = (Math.round(la * 10) / 10) + ',' + (Math.round(lo * 10) / 10);
+    const c = dayCoord(gid); if (!c) return;
+    const [la, lo] = c; const k = (Math.round(la * 10) / 10) + ',' + (Math.round(lo * 10) / 10);
     (byLoc[k] = byLoc[k] || { lat: la, lng: lo, gids: [] }).gids.push(gid);
   });
   for (const k of Object.keys(byLoc)) {
     const L = byLoc[k]; const dates = L.gids.map(g => GROUP_DATE[g]).sort();
     try {
       const r = await API.api('/api/weather?lat=' + L.lat + '&lng=' + L.lng + '&start=' + dates[0] + '&end=' + dates[dates.length - 1]);
+      if (gen !== wxGen) return;
       L.gids.forEach(g => { const d = r.days[GROUP_DATE[g]]; if (d) wx[g] = d; });
       rerender();
     } catch (e) { /* weather is optional */ }
@@ -626,7 +661,7 @@ const hotelMem = {};
 function hotelBox(i) {
   if (!features.hotels || i.cat !== 'lodging' || !i.hotelQuery || !(i.nights > 0) || !GROUP_DATE[i.group]) return null;
   const box = el('div', 'livebox');
-  const wdoc = watchDoc(i.id);
+  const wdoc = watchFor(i);
   const r = wdoc && wdoc.latest ? { ...wdoc.latest, hotelName: wdoc.hotelName, checkedAt: wdoc.checkedAt } : (i.live || hotelMem[i.id]);
   const check = el('button', 'linkbtn', r ? 'Check again' : 'Check live price'); check.type = 'button';
   check.onclick = async () => {
@@ -643,7 +678,7 @@ function hotelBox(i) {
   if (!r.found) box.append(el('span', null, r.message || 'Not found on Rakuten Travel.'));
   else if (!r.available) box.append(el('span', null, (r.hotelName ? r.hotelName + ': ' : '') + (r.message || 'No rooms listed for these dates yet.')));
   else {
-    box.append(el('span', null, (r.hotelName ? r.hotelName + ': ' : '') + 'from ' + fJPY(r.firstNight) + ' a night, about ' + fJPY(r.estimateTotal) + ' for ' + r.nights + (r.nights === 1 ? ' night' : ' nights') + ' (≈ ' + fUSD(toUSD(r.estimateTotal, 'JPY')) + ')'));
+    box.append(el('span', null, (r.hotelName ? r.hotelName + ': ' : '') + 'from ' + fAmt(r.firstNight, 'JPY') + ' a night, about ' + fAmt(r.estimateTotal, 'JPY') + ' for ' + r.nights + (r.nights === 1 ? ' night' : ' nights')));
     if (canWrite && r.estimateTotal) {
       const use = el('button', 'linkbtn', 'Use this price'); use.type = 'button';
       use.onclick = () => write(i.id, { cost: r.estimateTotal, cur: 'JPY', cat: 'lodging' }, 'Set ' + q(i.title) + ' to the live price');
@@ -711,7 +746,8 @@ function renderGroup(g) {
   const skipped = every.length - list.length;
   const gc = counts(list);
   const h = el('h3', 'day-head');
-  h.append(el('span', 'when', g.when), el('span', 'what', g.what));
+  h.append(el('span', 'kicker', g.n ? 'Day ' + g.n : 'Deadline'), el('span', 'when', g.when),
+    g.what ? el('span', 'what', g.what) : el('span', 'what muted', 'Free day in ' + (CH_CITY[g.ch] || 'Japan')));
   const dayUSD = list.filter(hasCost).reduce((s, i) => s + toUSD(i.cost, i.cur), 0);
   if (dayUSD > 0) h.append(el('span', 'daycost', '≈ ' + fUSD(dayUSD)));
   if (gc.total) h.append(el('span', 'count' + (gc.done === gc.total ? ' all' : ''), gc.done === gc.total ? 'All done' : gc.done + ' of ' + gc.total + ' done'));
@@ -777,6 +813,34 @@ function renderGroup(g) {
   if (add.childNodes.length) wrap.append(add);
   return wrap;
 }
+const nightsText = (n) => n + (n === 1 ? ' night' : ' nights');
+/* A Plan section: a bar that sticks under the header while you scroll through it (stop number, or an icon). */
+function chapterShell(id, kind, badge, title, sub, editable) {
+  const sec = el('section', 'chapter ' + kind); sec.id = id;
+  const bar = el('div', 'chapter-bar');
+  const b = el('span', 'stopnum'); b.append(badge);
+  const t = el('div', 't'); t.append(el('h2', null, title)); if (sub) t.append(el('span', 'sub', sub));
+  bar.append(b, t);
+  if (editable) bar.append(iconBtn('pencil', 'Change cities and nights', openRoute));
+  sec.append(bar);
+  return sec;
+}
+/* Items whose day was removed from the route (shorter stay, removed city): never deleted, listed until moved. */
+function unplaced() { const known = new Set(GROUPS.map(g => g.id)); return items.filter(i => !known.has(i.group)); }
+function renderUnplaced(list) {
+  const sec = chapterShell('unplaced', 'unplaced', icon('alert'), 'Not on a day yet', list.length + (list.length === 1 ? ' to-do' : ' to-dos'), false);
+  const head = el('div', 'chapter-head');
+  head.append(el('p', 'meta', 'These were on days you removed. Edit one and pick a day.'));
+  sec.append(head);
+  const wrap = el('div', 'day card');
+  const ul = el('ul', 'items');
+  const shown = (showSkipped ? list : list.filter(i => !i.disabled)).filter(visible);
+  shown.forEach(i => ul.append(renderItem(i, '')));
+  wrap.append(ul);
+  if (!shown.length) wrap.append(el('p', 'empty', 'Nothing matches the current filter.'));
+  sec.append(wrap);
+  return sec;
+}
 /* The done check, inside a 44 px tap target. View-only: the tap explains itself instead of doing nothing. */
 function checkBox(i) {
   const hit = el('label', 'checkhit');
@@ -817,7 +881,6 @@ function renderItem(i, state) {
     const pill = el(canWrite && i.cost > 0 ? 'button' : 'span', 'costpill' + (i.paid ? ' paid' : ''));
     if (i.paid && i.cost > 0) pill.append(icon('check'));
     pill.append(document.createTextNode(label));
-    if (i.cost > 0 && i.cur !== 'USD') pill.append(el('span', 'conv', '≈ ' + fUSD(toUSD(i.cost, i.cur))));
     if (pill.tagName === 'BUTTON') {
       pill.type = 'button';
       pill.setAttribute('aria-pressed', String(!!i.paid));
@@ -868,7 +931,7 @@ function renderItem(i, state) {
       () => write(i.id, { disabled: !i.disabled }, (i.disabled ? 'Restored ' : 'Skipped ') + q(i.title)), i.disabled ? '' : 'danger'));
   }
   if (acts.childNodes.length) side.append(acts);
-  li.append(side);
+  body.prepend(side); // floated right: time and title wrap beside it instead of a separate row
   return li;
 }
 function fmtOpens(s) {
@@ -914,7 +977,7 @@ function draftFrom(i) {
     start: i.start || '', end: i.end || '', title: i.title || '', detail: i.detail || '', transit: i.kind === 'travel', priority: i.priority || 'medium',
     linkLabel: l0.label || '', linkUrl: l0.url || '', cost: typeof i.cost === 'number' ? i.cost : '', cur: i.cur || 'JPY', cat: i.cat || '', paid: !!i.paid,
     paidBy: i.paidBy || '', place: i.place || '', pin: hasPin(i) ? i.lat + ', ' + i.lng : '', hotelQuery: i.hotelQuery || '', nights: i.nights == null ? '' : i.nights,
-    target: i.target == null ? '' : i.target, code: i.code || '', opens: i.opens || ''
+    target: i.target == null ? '' : i.target, code: i.code || '', opens: i.opens || '', group: i.group || ''
   };
 }
 function openEditor(item, groupId) {
@@ -923,6 +986,18 @@ function openEditor(item, groupId) {
   const d = draftFrom(item || { group: groupId });
   const g = GROUPS.find(G => G.id === (isNew ? groupId : item.group));
   const f = el('form'); f.id = 'editForm'; f.noValidate = true;
+  // Day: every day of the route by city, plus Book ahead; an item whose day was removed starts on "Pick a day".
+  const dayL = el('label', 'field'); dayL.append(el('span', null, 'Day'));
+  const daySel = el('select'); daySel.name = 'group';
+  if (!g) { const o = el('option', null, 'Pick a day'); o.value = ''; daySel.append(o); }
+  CHAPTERS.forEach(c => {
+    const og = el('optgroup'); og.label = c.station ? c.station + ' · ' + c.dates : c.name;
+    GROUPS.filter(G => G.ch === c.id).forEach(G => { const o = el('option', null, G.when + (G.what ? ' · ' + G.what : '')); o.value = G.id; og.append(o); });
+    daySel.append(og);
+  });
+  daySel.value = g ? g.id : '';
+  daySel.onchange = () => { d.group = daySel.value; };
+  dayL.append(daySel);
   const pr = el('div', 'seg'); pr.setAttribute('role', 'group'); pr.setAttribute('aria-label', 'Priority');
   PRIOS.forEach(p => {
     const b = el('button'); b.type = 'button'; b.setAttribute('aria-pressed', String(d.priority === p));
@@ -959,22 +1034,28 @@ function openEditor(item, groupId) {
     const r = el('div', 'row2'); r.append(field('Name for live prices (Japanese works best)', 'input', d.hotelQuery, 'hotelQuery', d), field('Nights', 'input', d.nights, 'nights', d, 'number', { min: 1, max: 30, inputMode: 'numeric' }));
     lodging.append(r);
   }
-  lodging.append(field('Alert me under (¥, whole stay)', 'input', d.target, 'target', d, 'number', { min: 0, inputMode: 'numeric', placeholder: 'e.g. 50000' }),
-    el('p', 'help', 'The nightly price watch emails you when the stay drops to this or a sold-out date opens up.'));
+  const tgtHelp = el('p', 'help');
+  const showTgt = () => { const n = Number(d.target); tgtHelp.textContent = (n > 0 ? 'About ' + fUSD(toUSD(n, 'JPY')) + '. ' : '') + 'The nightly price watch emails you when the stay drops to this or a sold-out date opens up.'; };
+  const tgtField = field('Alert me under (¥, whole stay)', 'input', d.target, 'target', d, 'number', { min: 0, inputMode: 'numeric', placeholder: 'e.g. 50000' });
+  tgtField.querySelector('input').addEventListener('input', showTgt); showTgt();
+  lodging.append(tgtField, tgtHelp);
   showLodging();
   const money = el('div', 'row3');
   money.append(field('Cost for both', 'input', d.cost, 'cost', d, 'number', { min: 0, step: 'any', inputMode: 'decimal' }),
     select('Currency', 'cur', d.cur, [['JPY', '¥ yen'], ['USD', '$ dollars']], d),
     select('Budget category', 'cat', d.cat, catOpts, d, showLodging));
+  const costHelp = el('p', 'help');
+  const showCost = () => { const n = Number(d.cost); costHelp.textContent = d.cur !== 'USD' && String(d.cost).trim() !== '' && n > 0 ? 'About ' + fUSD(toUSD(n, 'JPY')) + ' for both of you.' : ''; costHelp.hidden = !costHelp.textContent; };
+  money.querySelector('[name=cost]').addEventListener('input', showCost); money.querySelector('[name=cur]').addEventListener('change', showCost); showCost();
   const paidRow = el('div', 'row2');
   const pf = el('div', 'field'); pf.append(el('span', null, 'Status'), switchField('Paid', 'paid', d));
   paidRow.append(pf, select('Paid by', 'paidBy', d.paidBy, [['', 'Not set'], ...TRAVELERS.map(t => [t, t])], d));
   const opensL = field('Sale opens (Japan time)', 'input', d.opens.length === 10 ? d.opens + 'T00:00' : d.opens, 'opens', d, 'datetime-local');
   f.append(
-    fieldset(null, field('What', 'input', d.title, 'title', d, 'text', { maxLength: 200, required: true }), times, (() => { const p = el('div', 'field'); p.append(el('span', null, 'Priority'), pr); return p; })()),
+    fieldset(null, field('What', 'input', d.title, 'title', d, 'text', { maxLength: 200, required: true }), dayL, times, (() => { const p = el('div', 'field'); p.append(el('span', null, 'Priority'), pr); return p; })()),
     fieldset('Where', field('Location (place name or address)', 'input', d.place, 'place', d), pinL, el('p', 'help', 'In Google Maps, long-press the spot and copy the coordinates, or paste the place\'s share link.')),
     fieldset('Notes', field('Details', 'textarea', d.detail, 'detail', d)),
-    fieldset('Money', money, paidRow),
+    fieldset('Money', money, costHelp, paidRow),
     lodging,
     fieldset('Booking', (() => { const r = el('div', 'row2'); r.append(field('Link label', 'input', d.linkLabel, 'linkLabel', d), field('Link (https://…)', 'input', d.linkUrl, 'linkUrl', d, 'url')); return r; })(),
       (() => { const r = el('div', 'row2'); r.append(field('Confirmation code', 'input', d.code, 'code', d, 'text', { maxLength: 40, autocapitalize: 'characters' }), opensL); return r; })())
@@ -993,11 +1074,17 @@ function openEditor(item, groupId) {
     const extra = bookingPatch(d); if (!extra) return;
     if (features.hotels) { extra.hotelQuery = String(d.hotelQuery || '').trim().slice(0, 80); const n = Number(d.nights); extra.nights = n > 0 ? Math.min(30, Math.round(n)) : null; }
     const base = { title, detail: d.detail.trim(), priority: d.priority };
+    const to = GROUPS.find(G => G.id === d.group);
+    const nextSort = (gid) => { const sorts = items.filter(x => x.group === gid).map(x => x.sort || 0); return (sorts.length ? Math.max(...sorts) : 0) + 10; };
     editing = null; closeSheet();
     if (isNew) {
-      const sorts = items.filter(x => x.group === groupId).map(x => x.sort || 0);
-      create(Object.assign({ group: groupId, sort: (sorts.length ? Math.max(...sorts) : 0) + 10, done: false }, base, timePatch(d), lp, cp, lo, extra), 'Added ' + q(title) + ' to ' + g.when);
-    } else write(item.id, Object.assign(base, timePatch(d), lp, cp, lo, extra), 'Edited ' + q(title));
+      const gid = to ? to.id : groupId, gw = to || g;
+      create(Object.assign({ group: gid, sort: nextSort(gid), done: false }, base, timePatch(d), lp, cp, lo, extra), 'Added ' + q(title) + ' to ' + gw.when);
+    } else {
+      const moved = to && to.id !== item.group;
+      if (moved) Object.assign(base, { group: to.id, sort: nextSort(to.id) });
+      write(item.id, Object.assign(base, timePatch(d), lp, cp, lo, extra), moved ? 'Moved ' + q(title) + ' to ' + to.when : 'Edited ' + q(title));
+    }
   };
   openSheet({ title: isNew ? 'Add to ' + g.when : 'Edit item', body: f, foot: [cancel, save], onClose: () => { editing = null; } });
 }
@@ -1042,6 +1129,117 @@ function checkTimes(d) {
 }
 function timePatch(d) { return { start: d.start || '', end: d.start ? (d.end || '') : '', kind: d.transit ? 'travel' : 'activity' }; }
 
+/* ---------- Route editor: nights in each city, add and remove cities (settings/route) ---------- */
+const newId = (p) => p + Date.now().toString(36).slice(-4) + Math.random().toString(36).slice(2, 8);   // city-… / day-… (cleanRoute's id shapes)
+const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+function routeSummary(a, b) {
+  const A = new Map(a.stops.map(s => [s.id, s])), B = new Map(b.stops.map(s => [s.id, s])), out = [];
+  for (const s of b.stops) { const o = A.get(s.id); if (!o) out.push('added ' + s.city + ', ' + nightsText(s.days.length)); else if (o.days.length !== s.days.length) out.push(s.city + ' ' + o.days.length + ' → ' + nightsText(s.days.length)); }
+  for (const s of a.stops) if (!B.has(s.id)) out.push('removed ' + s.city);
+  return out.join('; ');
+}
+function openRoute() {
+  if (!db || !canWrite) return needEdit();
+  const draft = structuredClone(ROUTE);   // the stored doc is the sync layer's own copy: never edit it in place
+  const spare = new Map();                // stop id -> days its minus took off, given back by plus (their to-dos come back too)
+  const onDay = (gid) => items.filter(i => i.group === gid).length;
+  const pane = el('div');
+  // Add a city: built once so typing survives redraws
+  const add = el('form', 'route-add'); add.id = 'routeAdd';
+  const cityL = el('label', 'field'); cityL.append(el('span', null, 'Add a city')); const city = el('input'); city.maxLength = 60; city.placeholder = 'Osaka'; city.autocomplete = 'off'; cityL.append(city);
+  const nL = el('label', 'field'); nL.append(el('span', null, 'Nights')); const nIn = el('input'); nIn.type = 'number'; nIn.min = '1'; nIn.max = '30'; nIn.value = '2'; nIn.inputMode = 'numeric'; nL.append(nIn);
+  const afterL = el('label', 'field'); afterL.append(el('span', null, 'After')); const after = el('select'); afterL.append(after);
+  const addBtn = el('button', 'btn secondary'); addBtn.type = 'submit'; withIcon(addBtn, 'plus', 'Add');
+  add.append(cityL, nL, afterL, addBtn);
+  add.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const name = city.value.trim(), n = Math.round(Number(nIn.value));
+    if (!name) { city.focus(); return; }
+    if (!(n >= 1 && n <= 30)) { toast('Nights need to be between 1 and 30.'); return; }
+    addBtn.disabled = true;
+    try {
+      const r = await API.api('/api/geocode?q=' + encodeURIComponent(name));
+      if (!r.found) { toast('OpenStreetMap couldn\'t find ' + name + '. Try another spelling.'); return; }
+      const at = Math.min(Number(after.value) + 1, draft.stops.length);
+      draft.stops.splice(at, 0, { id: newId('city-'), city: name, name: '', place: '', lat: r.lat, lng: r.lng, days: Array.from({ length: n }, () => ({ id: newId('day-'), what: '' })) });
+      city.value = ''; draw();
+    } catch (e) { toast('Adding a city needs a connection, to find it on the map.'); }
+    finally { addBtn.disabled = false; }
+  };
+  const draw = (focusKey) => {
+    pane.textContent = '';
+    const t = buildTrip(draft);
+    pane.append(el('p', 'route-sum', plural(t.nights, 'night', 'nights') + ' · ' + dayLabel(TRIP.start) + ' – ' + dayLabel(t.end)));
+    if (t.end !== TRIP.end) {
+      const d = Math.round((Date.parse(t.end) - Date.parse(TRIP.end)) / 86400e3);
+      pane.append(el('p', 'slab warning', 'Ends ' + dayLabel(t.end) + ', ' + plural(Math.abs(d), 'day', 'days') + (d > 0 ? ' after' : ' before') + ' your flight home on ' + dayLabel(TRIP.end) + '.'));
+    }
+    const ol = el('ol', 'route-rows');
+    const btn = (label, aria, key, fn, dis) => { const b = el('button', null, label); b.type = 'button'; b.setAttribute('aria-label', aria); b.dataset.k = key; b.disabled = !!dis; b.onclick = () => { fn(); draw(key); }; return b; };
+    draft.stops.forEach((s, k) => {
+      const c = t.chapters.find(x => x.id === s.id);
+      const li = el('li', 'route-row');
+      li.append(el('span', 'stopnum', String(k + 1)), el('span', 'city', s.city), el('span', 'when', c ? c.dates : ''));
+      const rm = iconBtn('trash', 'Remove ' + s.city, null, 'danger rm'); rm.dataset.k = s.id + ':rm';
+      rm.disabled = draft.stops.length < 2;
+      rm.onclick = () => { draft.stops.splice(k, 1); draw(); };
+      const st = el('div', 'stepper');
+      st.append(btn('−', 'One night less in ' + s.city, s.id + ':minus', () => { const d = s.days.pop(); if (!spare.has(s.id)) spare.set(s.id, []); spare.get(s.id).push(d); }, s.days.length <= 1),
+        el('span', 'n', nightsText(s.days.length)),
+        btn('+', 'One more night in ' + s.city, s.id + ':plus', () => { const sp = spare.get(s.id); s.days.push(sp && sp.length ? sp.pop() : { id: newId('day-'), what: '' }); }, s.days.length >= 30 || t.nights >= 90));
+      li.append(rm, st);
+      const was = ROUTE.stops.find(x => x.id === s.id);
+      if (was) {   // days this draft drops from a city that stays
+        const keep = new Set(s.days.map(d => d.id));
+        const gone = was.days.filter(d => !keep.has(d.id) && onDay(d.id));
+        const n = gone.reduce((m, d) => m + onDay(d.id), 0);
+        if (n) li.append(el('p', 'note', plural(n, 'to-do', 'to-dos') + ' from ' + gone.map(d => GROUPS.find(G => G.id === d.id).when).join(', ') + ' will move to Not on a day yet.'));
+      }
+      ol.append(li);
+    });
+    ROUTE.stops.forEach((s, k) => {   // removed in this draft: say what happens, offer Undo
+      if (draft.stops.some(x => x.id === s.id)) return;
+      const n = s.days.reduce((m, d) => m + onDay(d.id), 0);
+      const li = el('li', 'route-row gone');
+      li.append(el('span', 'stopnum', '–'), el('span', 'city', s.city), el('span', 'when', 'Removed' + (n ? ' · ' + plural(n, 'to-do moves', 'to-dos move') + ' to Not on a day yet' : '')));
+      const undo = el('button', 'btn ghost sm rm', 'Undo'); undo.type = 'button'; undo.dataset.k = s.id + ':undo';
+      undo.onclick = () => { draft.stops.splice(Math.min(k, draft.stops.length), 0, structuredClone(s)); spare.delete(s.id); draw(s.id + ':rm'); };
+      li.append(undo); ol.append(li);
+    });
+    ol.append(el('li', 'route-home', 'Then fly home · ' + dayLabel(t.end)));
+    pane.append(ol);
+    // Booked hotels whose check-in date this draft moves (the coverage count can't see a shifted booking)
+    const shifted = items.filter(i => !i.disabled && i.cat === 'lodging' && GROUP_DATE[i.group] && t.groupDate[i.group] && GROUP_DATE[i.group] !== t.groupDate[i.group]);
+    if (shifted.length) {
+      const moves = el('div', 'slab warning route-moves'); moves.append(el('b', null, 'Hotel check-ins that change date'));
+      const ul = el('ul'); shifted.forEach(i => ul.append(el('li', null, (i.place || i.title).split(',')[0] + ': ' + dayLabel(GROUP_DATE[i.group]) + ' → ' + dayLabel(t.groupDate[i.group]))));
+      moves.append(ul, el('p', null, 'Change those bookings to match, or adjust the nights.')); pane.append(moves);
+    }
+    const keepAfter = after.value; after.textContent = '';
+    draft.stops.forEach((s, k) => { const o = el('option', null, (k + 1) + '. ' + s.city); o.value = String(k); after.append(o); });
+    after.value = keepAfter !== '' && Number(keepAfter) < draft.stops.length ? keepAfter : String(draft.stops.length - 1);
+    add.hidden = draft.stops.length >= 12;
+    if (focusKey) { const f = pane.querySelector('[data-k="' + focusKey + '"]'); if (f && !f.disabled) f.focus(); }
+  };
+  const body = el('div', 'routeed'); body.append(pane, add);
+  draw();
+  const save = el('button', 'btn', 'Save route'); save.type = 'button';
+  save.onclick = () => {
+    const clean = cleanRoute(draft);
+    const keep = new Set(buildTrip(clean).groups.map(g => g.id));
+    const moved = items.filter(i => GROUPS.some(G => G.id === i.group) && !keep.has(i.group)).length;
+    const summary = routeSummary(ROUTE, clean);
+    closeSheet();
+    if (!summary) return;
+    db.doc('settings/route').set(Object.assign({}, clean, { updatedAt: Date.now(), updatedBy: uid || null }))
+      .then(() => addLog('Changed the route: ' + summary)).catch(handleErr);
+    toast(moved ? plural(moved, 'to-do', 'to-dos') + ' moved to Not on a day yet.' : 'Route saved.');
+  };
+  const cancel = el('button', 'btn secondary', 'Cancel'); cancel.type = 'button'; cancel.onclick = closeSheet;
+  openSheet({ title: 'Cities and nights', body, foot: [cancel, save] });
+}
+$('#routeBtn').addEventListener('click', openRoute);
+
 /* ---------- Share sheet ---------- */
 function openShare() {
   const b = el('div');
@@ -1058,6 +1256,7 @@ $('#shareBtn').addEventListener('click', openShare);
 
 /* ---------- Render ---------- */
 function render() {
+  $('#tripFacts').textContent = TRAVELERS.join(' and ') + ' · ' + TRIP_NIGHTS + ' nights · ' + dateRange(TRIP.start, TRIP_END);
   renderRoute();
   const main = $('#main'); main.textContent = '';
   if (loaded) {
@@ -1066,17 +1265,24 @@ function render() {
     $('#meterFill').style.width = (all.total ? Math.round(100 * all.done / all.total) : 0) + '%';
     $('#progText').textContent = all.done + ' of ' + all.total + ' done';
     CHAPTERS.forEach(c => {
-      const sec = el('section', 'chapter'); sec.id = c.id;
+      const mine = live().filter(i => groupCh(i.group) === c.id), cc = counts(mine);
+      const sec = c.station
+        ? chapterShell(c.id, 'city', String(c.n), c.station, c.dates + ' · ' + nightsText(c.nights), canWrite)
+        : chapterShell(c.id, 'book', icon('check'), c.name, 'Before you go', false);
       const head = el('div', 'chapter-head');
-      if (c.station) head.append(el('span', 'kicker', c.station + ' · ' + c.dates));
-      head.append(el('h2', null, c.name));
-      const meta = el('p', 'meta'); meta.style.margin = '0';
-      const cc = counts(live().filter(i => groupCh(i.group) === c.id));
-      meta.append(document.createTextNode(c.place + '. '), el('span', 'ok', cc.done + ' of ' + cc.total + ' done'));
+      if (c.station && c.name) head.append(el('p', 'theme', c.name));
+      const meta = el('p', 'meta');
+      meta.append(document.createTextNode(c.place ? c.place + '. ' : ''), el('span', 'ok', cc.done + ' of ' + cc.total + ' done'));
+      if (c.station) {   // a longer stay doesn't book itself: say when the hotels on the plan don't cover every night
+        const booked = mine.filter(i => i.cat === 'lodging' && i.nights > 0).reduce((n, i) => n + i.nights, 0);
+        if (booked < c.nights) meta.append(document.createTextNode(' '), el('span', 'warn', booked ? 'Hotels cover ' + booked + ' of ' + nightsText(c.nights) + '.' : 'No hotel on the plan yet.'));
+      }
       head.append(meta); sec.append(head);
       GROUPS.filter(g => g.ch === c.id).forEach(g => sec.append(renderGroup(g)));
       main.append(sec);
     });
+    const lost = unplaced();
+    if (lost.length) main.append(renderUnplaced(lost));
     fillNames();
   }
   renderMoney();
@@ -1161,7 +1367,7 @@ async function renderLog() {
 /* ---------- Access ---------- */
 function setAccessStatus() {
   if (!db) return;
-  if (canWrite) setStatus(['Changes save for everyone who opens this page. ', { b: 'Tap a colored dot' }, ' to set priority: red high, yellow medium, green low.']);
+  if (canWrite) setStatus(['Changes save for everyone who opens this page. The colored stripe shows priority: ', { b: 'red high, yellow medium, green low' }, '.']);
   else setStatus(['This browser\'s link no longer works. ', { b: 'Paste the current link' }, ' to keep editing.']);
 }
 
@@ -1196,9 +1402,14 @@ export const ctx = {
   get settings() { return settings; }, get expenses() { return expenses; }, get loaded() { return loaded; }, get modules() { return modules; },
   write, create, addLog, handleErr, render, go, register: (id, m) => { modules[id] = m; buildNav(); route(); },
   gapHooks, itemHooks, openEditor, checkBox, needEdit, flashItem, hasPin, mins, fmt12, dur, byTime, tokyoNow, timeRange, mapsUrl, routeUrl, mapQuery,
-  toUSD, fUSD, fJPY, fAmt, hasCost, rate, addDaysISO, fmtOpens, wxText, walkLegFor, linkList, ago, CATS
+  toUSD, fUSD, fJPY, fAmt, hasCost, rate, addDaysISO, fmtOpens, wxText, walkLegFor, linkList, ago, CATS, watchFor
 };
 export function watchDoc(id) { return docsOf('watch/' + id); }
+/* An item's price-watch doc, unless it was checked for other dates (the route or the nights changed since). */
+export function watchFor(i) {
+  const w = watchDoc(i.id); if (!w || !w.checkin) return w;
+  return w.checkin === GROUP_DATE[i.group] && w.nights === i.nights ? w : null;
+}
 export function docsOf(path) { return window.TRIP_API && API.doc ? API.doc(path) : undefined; }
 
 /* ---------- Boot ---------- */
@@ -1224,7 +1435,17 @@ async function boot() {
   setupBudgetForms();
   $('#expForm').hidden = !canWrite;
   $('#budgetSettings').hidden = !canWrite;
+  $('#routeBtn').hidden = !canWrite;
   renderSettingsForm(true);
+  // The route first: listeners fire in subscription order, so items never render against the default route.
+  let dateSig = JSON.stringify(GROUP_DATE);
+  db.doc('settings/route').onSnapshot(snap => {
+    useRoute(snap.exists ? snap.data() : null);
+    const sig = JSON.stringify(GROUP_DATE);
+    if (sig !== dateSig) { dateSig = sig; for (const k of Object.keys(wx)) delete wx[k]; wxGen++; wxStarted = false; setTimeout(loadWeather, 50); }
+    updateToday();
+    if (loaded) render();
+  }, () => {});
   db.doc('settings/budget').onSnapshot(snap => {
     if (snap.exists) {
       const s = snap.data(); settingsRaw = s;

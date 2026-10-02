@@ -6,6 +6,7 @@ import { score, rank, classify, yearOf, isChain } from '../api/_lib/osm.js';
 import { applyCheck, flexFrom, opensAt, dueReminders } from '../api/_lib/alerts.js';
 import { toICS } from '../api/_lib/ics.js';
 import { summarizePlans } from '../api/_lib/rakuten.js';
+import { buildTrip, cleanRoute, isStay, DEFAULT_ROUTE } from '../public/trip.js';
 
 test('opening hours: common forms', () => {
   // 2027-04-06 is a Tuesday
@@ -90,6 +91,8 @@ test('price watch: alerts for target crossing, reopening and a new low', () => {
   assert.equal(again.alerts.length, 0, 'still under target and under 3% lower: no repeat alert');
   assert.equal(again.doc.history.length, 4);
   assert.equal(again.doc.alerts.length, 3);
+  const usd = applyCheck(first.doc, { ...base, estimateTotal: 46500 }, { title: 'Ryokan', target: 50000, day: '2026-10-05', rate: 155 });
+  assert.equal(usd.alerts.find(a => a.kind === 'target').text, 'Ryokan: $300 (¥46,500) is at or under your $323 (¥50,000) target.');
 });
 
 test('price watch: flexible dates and sale reminders', () => {
@@ -142,4 +145,63 @@ test('taste: priorities, check-offs, skips, picks and dismissals', async () => {
   const w = tasteProfile([{ title: 'Itoya stationery', priority: 'high', done: true }, { title: 'Temple walk', disabled: true }, { title: 'x', category: 'bathhouse', priority: 'low' }],
     { picks: { museum: 2 }, dismissed: { 'node/1': 'bathhouse' } });
   assert.equal(w.stationery, 4); assert.equal(w.temple, -2); assert.equal(w.museum, 4); assert.equal(w.bathhouse, 0);
+});
+
+test('route: the default route reproduces the original trip', () => {
+  const t = buildTrip(null);
+  assert.deepEqual(Object.values(t.groupDate), Array.from({ length: 14 }, (_, k) => '2027-04-' + String(k + 1).padStart(2, '0')));
+  assert.deepEqual(t.chapters.filter(c => c.station).map(c => c.dates), ['Apr 1–4', 'Apr 4–6', 'Apr 6–10', 'Apr 10–12', 'Apr 12–14']);
+  assert.deepEqual(t.chapters.filter(c => c.station).map(c => c.nights), [3, 2, 4, 2, 2]);
+  const g = Object.fromEntries(t.groups.map(x => [x.id, x]));
+  assert.equal(g.d01.when, 'Thu Apr 1'); assert.equal(g.d14.when, 'Wed Apr 14');
+  assert.equal(g.d14.ch, 'c5'); assert.equal(g.d14.home, true);
+  assert.equal(t.nights, 13); assert.equal(t.end, '2027-04-14');
+  assert.deepEqual(t.groups.slice(0, 4).map(x => x.id + ':' + x.ch), ['b-now:book', 'b-march:book', 'b-feb:book', 'b-fly:book']);
+  assert.equal(t.chapters.find(c => c.id === 'c4').island, true);
+});
+
+test('route: more nights shift later cities; a removed city frees its days', () => {
+  const longer = structuredClone(DEFAULT_ROUTE);
+  longer.stops[0].days.push({ id: 'day-extra1', what: '' });
+  const t = buildTrip(longer);
+  assert.equal(t.groupDate.d04, '2027-04-05');
+  assert.equal(t.chapters.find(c => c.id === 'c2').dates, 'Apr 5–7');
+  assert.equal(t.end, '2027-04-15'); assert.equal(t.nights, 14);
+  const shorter = structuredClone(DEFAULT_ROUTE);
+  shorter.stops.splice(1, 1);
+  const u = buildTrip(shorter);
+  assert.equal(u.groupDate.d04, undefined); assert.equal(u.groupDate.d05, undefined);
+  assert.equal(u.groupDate.d06, '2027-04-04');
+  assert.equal(u.chapters.find(c => c.id === 'c3').dates, 'Apr 4–8');
+  const may = structuredClone(DEFAULT_ROUTE);
+  for (let k = 0; k < 20; k++) may.stops[2].days.push({ id: 'day-x' + String(k).padStart(3, '0'), what: '' });
+  assert.equal(buildTrip(may).chapters.find(c => c.id === 'c4').dates, 'Apr 30–May 2', 'across a month');
+});
+
+test('route: cleanRoute is the trust boundary', () => {
+  for (const junk of [null, 'x', 7, {}, { stops: 'no' }, { stops: [] }, { stops: [{ id: 'map', city: 'X', days: [{ id: 'd01' }] }] }]) assert.equal(cleanRoute(junk), DEFAULT_ROUTE);
+  const doc = { stops: [
+    { id: 'c1', city: ' Tokyo ', lat: 99, lng: 139, days: [{ id: 'd01', what: 'a' }, { id: 'd01', what: 'dup' }, { id: 'b-now' }, { id: 'book' }, { id: 'map' }, { id: 'day-abcd', what: 'b' }] },
+    { id: 'c1', city: 'Again', days: [{ id: 'd02' }] },
+    { id: 'city-osaka1', city: 'Osaka', lat: 34.69, lng: 135.5, island: 'yes', days: Array.from({ length: 31 }, (_, k) => ({ id: 'day-o' + String(k).padStart(3, '0') })) },
+    { id: 'city-kobe01', city: 'Kobe', lat: 34.69, lng: 135.19, island: true, days: [{ id: 'd03', what: 'x'.repeat(500) }] }
+  ], home: { id: 'd01', what: 'taken' } };
+  const before = JSON.stringify(doc);
+  const r = cleanRoute(doc);
+  assert.equal(JSON.stringify(doc), before, 'input untouched');
+  assert.deepEqual(r.stops.map(s => s.id), ['c1', 'city-kobe01'], 'duplicate stop id and the 31-day stop dropped');
+  assert.deepEqual(r.stops[0].days.map(d => d.id), ['d01', 'day-abcd']);
+  assert.equal(r.stops[0].city, 'Tokyo');
+  assert.equal(r.stops[0].lat, null, 'outside Japan');
+  assert.equal(r.stops[1].island, true);
+  assert.equal(r.stops[1].days[0].what.length, 120);
+  assert.equal(r.home.id, 'd14', 'a taken home id falls back to the default');
+});
+
+test('route: a stay on a removed day is not watched', () => {
+  const stay = { cat: 'lodging', hotelQuery: '松坂屋本店', nights: 2, group: 'd04' };
+  assert.equal(isStay(stay, buildTrip(null).groupDate), true);
+  const r = structuredClone(DEFAULT_ROUTE); r.stops.splice(1, 1);
+  assert.equal(isStay(stay, buildTrip(r).groupDate), false);
+  assert.equal(isStay({ ...stay, disabled: true }, buildTrip(null).groupDate), false);
 });

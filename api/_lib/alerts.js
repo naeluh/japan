@@ -1,11 +1,13 @@
 // Price-watch bookkeeping: fold one fresh Rakuten check into a stay's watch doc and decide what's worth an alert.
 import { opensAt } from '../../public/trip.js';
 export { opensAt };
-const yen = (n) => '¥' + Math.round(n).toLocaleString('en-US');
+const fmtYen = (n) => '¥' + Math.round(n).toLocaleString('en-US');
 
-/* prev: the stay's previous watch doc (or null). r: priceStay() result. Returns { doc, alerts }. */
-export function applyCheck(prev, r, { title = 'A stay', target = null, day, at = Date.now() }) {
+/* prev: the stay's previous watch doc (or null). r: priceStay() result. rate: yen per dollar, to lead alert texts with dollars.
+   Returns { doc, alerts }. */
+export function applyCheck(prev, r, { title = 'A stay', target = null, day, at = Date.now(), rate = null }) {
   prev = prev || {};
+  const yen = (n) => rate > 0 ? '$' + Math.round(n / rate).toLocaleString('en-US') + ' (' + fmtYen(n) + ')' : fmtYen(n);
   const total = r.found && r.available && r.estimateTotal != null ? r.estimateTotal : null;
   const last = prev.latest || null;
   const alerts = [];

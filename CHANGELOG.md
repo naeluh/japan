@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.3.0 (2026-10-01)
+
+### Change cities and nights
+- A new **Change cities and nights** sheet: a − / + stepper for the nights in each city, add a city (found on OpenStreetMap for its pin, weather and Explore), remove a city (Undo until you save). It shows the trip length and end date as you go, warns when the plan stops ending on your flight home, and lists hotel check-ins whose date would move.
+- The route now lives in the database (`settings/route`). Plans without one keep the original route; nothing to migrate.
+- To-dos on days you remove are never deleted: they collect under **Not on a day yet**. The edit sheet has a new **Day** field to move any to-do to another day.
+- Each city says when the hotels on the plan cover fewer nights than the stay. The price watch checks stays on their new dates and starts a fresh price history when the dates move; Deals hides prices checked for old dates.
+- The trip map is drawn from the route: numbered pins, framed to fit any screen.
+
+### Clearer sections
+- Each city has a numbered bar (matching its map pin) that sticks to the top while you scroll through it, with its dates and nights. Day cards lead with the date and a "Day 6" label. **Book ahead** looks like a checklist of deadlines.
+
+### Dollars first
+- Every yen price also shows dollars, dollars first: plan items, hotel prices, Deals (the big number is now in dollars), the spending log, the fare table (new ≈ $ column), the edit sheet and price-alert emails.
+
+### Phones
+- The Money screen no longer scrolls sideways (it was 667 px wide on a 390 px phone).
+- The filter bar wraps instead of hiding To do, Done, Skipped and Check opening hours off-screen; it no longer sticks to the top (the city bar does).
+- To-do rows are shorter: the Maps, Edit and Skip buttons sit beside the time and title instead of on a line of their own, and phones change priority in Edit (the stripe still shows it).
+- The trip map fits the screen instead of scrolling sideways.
+
 ## 2.2.0 (2026-09-30)
 
 - One mode for everyone: whoever can see the plan can edit it, and every change saves to the database for everyone. The view-only key (`VIEW_KEY`) is gone.

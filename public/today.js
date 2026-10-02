@@ -3,10 +3,11 @@ import { ctx } from './app.js';
 import { GROUPS, GROUP_DATE, TRAVELERS, TRIP } from './trip.js';
 
 const { $, el, icon, withIcon, extLink, toast } = ctx;
-const DAYS = GROUPS.filter(g => GROUP_DATE[g.id]);
+const days = () => GROUPS.filter(g => GROUP_DATE[g.id]);   // the route can change: never cache this at load
 let pick = null;   // a day chosen with the arrows; null follows the calendar
 
 function dayFor(now) {
+  const DAYS = days();
   const g = DAYS.find(d => GROUP_DATE[d.id] === now.date);
   if (g) return { g, mode: 'live' };
   return now.date < TRIP.start ? { g: DAYS[0], mode: 'before' } : { g: DAYS[DAYS.length - 1], mode: 'after' };
@@ -16,7 +17,7 @@ function tonight(date) { // the stay whose nights cover this date
     .find(i => GROUP_DATE[i.group] <= date && date < ctx.addDaysISO(GROUP_DATE[i.group], i.nights));
 }
 function hoursNote(i) {
-  try { const h = (JSON.parse(localStorage.getItem('trip:hours') || '{}').results || {})[i.id]; if (h && (h.state === 'closed' || h.state === 'partial')) return h; } catch (e) { /* none saved */ }
+  try { const h = (JSON.parse(localStorage.getItem('trip:hours') || '{}').results || {})[i.id]; if (h && (h.state === 'closed' || h.state === 'partial') && (!h.date || h.date === GROUP_DATE[i.group])) return h; } catch (e) { /* none saved */ }
   return null;
 }
 function directions(i, mode) {
@@ -56,6 +57,8 @@ function render() {
   if (!ctx.loaded) return;
   const now = ctx.tokyoNow();
   const auto = dayFor(now);
+  const DAYS = days();
+  if (pick && !DAYS.some(d => d.id === pick)) pick = null;   // that day was removed from the route
   const g = pick ? DAYS.find(d => d.id === pick) : auto.g;
   const date = GROUP_DATE[g.id];
   const live = !pick && auto.mode === 'live';

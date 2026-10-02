@@ -4,13 +4,14 @@ import { GROUPS, GROUP_DATE, CH_CITY, groupCh, tasteProfile, links, stayLinks } 
 
 const { $, el, icon, withIcon, extLink, toast } = ctx;
 const API = window.TRIP_API;
-const DAYS = GROUPS.filter(g => GROUP_DATE[g.id]);
+const days = () => GROUPS.filter(g => GROUP_DATE[g.id]);   // the route can change: never cache this at load
+const checkDay = () => { if (!GROUP_DATE[state.day]) { state.day = days()[0].id; state.anchor = ''; state.gap = null; state.results = null; } };
 const STAY_MIN = { museum: 60, gallery: 45, bathhouse: 60, garden: 45, temple: 40, shrine: 30, historic: 30 };
 const pad = (n) => String(n).padStart(2, '0');
 const hhmm = (m) => pad(Math.floor(m / 60) % 24) + ':' + pad(m % 60);
 const OPEN = { open: ['Open then', 'success'], partial: ['Closes during your visit', 'warning'], unknown: ['Hours unknown', ''] };
 
-const state = { mode: 'nearby', day: DAYS[0].id, anchor: '', walk: 15, at: '', gap: null, results: null, loading: false, error: '', seq: 0, coords: null };
+const state = { mode: 'nearby', day: days()[0].id, anchor: '', walk: 15, at: '', gap: null, results: null, loading: false, error: '', seq: 0, coords: null };
 let taste = {}, tasteSubscribed = false;
 
 function subscribeTaste() {
@@ -59,6 +60,7 @@ function anchorPoint() {
 }
 
 async function search() {
+  checkDay();
   const p = anchorPoint();
   if (!p) { state.error = 'This day has no stops with a map pin yet. Add a location to one, or use where you are.'; state.results = null; render(); return; }
   const seq = ++state.seq;
@@ -142,7 +144,7 @@ function controls() {
   const card = el('section', 'card pad');
   const row = el('div', 'row3 explore-controls');
   const dayL = el('label', 'field'); dayL.append(el('span', null, 'Day'));
-  const daySel = el('select'); DAYS.forEach(g => { const o = el('option', null, g.when); o.value = g.id; daySel.append(o); }); daySel.value = state.day;
+  const daySel = el('select'); days().forEach(g => { const o = el('option', null, g.when); o.value = g.id; daySel.append(o); }); daySel.value = state.day;
   daySel.onchange = () => { state.day = daySel.value; state.anchor = ''; state.coords = null; state.gap = null; state.results = null; render(); };
   dayL.append(daySel);
   const nearL = el('label', 'field'); nearL.append(el('span', null, 'Near'));
@@ -182,7 +184,7 @@ function searchPanel(root) {
   const card = el('section', 'card pad');
   const row = el('div', 'row2');
   const dayL = el('label', 'field'); dayL.append(el('span', null, 'Day'));
-  const daySel = el('select'); DAYS.forEach(d => { const o = el('option', null, d.when); o.value = d.id; daySel.append(o); }); daySel.value = state.day;
+  const daySel = el('select'); days().forEach(d => { const o = el('option', null, d.when); o.value = d.id; daySel.append(o); }); daySel.value = state.day;
   daySel.onchange = () => { state.day = daySel.value; state.anchor = ''; render(); };
   dayL.append(daySel);
   const nearL = el('label', 'field'); nearL.append(el('span', null, 'Near'));
@@ -228,6 +230,7 @@ function searchPanel(root) {
 function render() {
   const root = $('#explore'); if (!root) return;
   subscribeTaste();
+  checkDay();
   root.textContent = '';
   if (!ctx.loaded) return;
   const modes = el('div', 'seg'); modes.setAttribute('role', 'group'); modes.setAttribute('aria-label', 'Explore mode');
@@ -262,6 +265,7 @@ async function checkHours(btn) {
   const out = {};
   try {
     for (let k = 0; k < stops.length; k += 20) Object.assign(out, (await API.api('/api/discover', { method: 'POST', body: JSON.stringify({ stops: stops.slice(k, k + 20) }) })).hours);
+    for (const st of stops) if (out[st.id]) out[st.id].date = st.date;   // results hold for these dates only
     hours = out;
     try { localStorage.setItem('trip:hours', JSON.stringify({ at: Date.now(), results: out })); } catch (e) { /* offline copy is optional */ }
     const bad = Object.values(out).filter(h => h.state === 'closed' || h.state === 'partial').length;
@@ -271,7 +275,7 @@ async function checkHours(btn) {
   finally { btn.disabled = false; btn.textContent = label; ctx.render(); }
 }
 ctx.itemHooks.push((i) => {
-  const h = hours[i.id]; if (!h || !(h.state === 'closed' || h.state === 'partial') || i.done || i.disabled) return null;
+  const h = hours[i.id]; if (!h || !(h.state === 'closed' || h.state === 'partial') || i.done || i.disabled || (h.date && h.date !== GROUP_DATE[i.group])) return null;
   const s = el('p', 'slab warning hoursnote');
   s.append(icon('clock'), document.createTextNode((h.state === 'closed' ? ' May be closed then.' : ' May close before you leave.') + (h.hours ? ' OpenStreetMap hours: ' + h.hours + (h.matched ? ' (' + h.matched + ')' : '') + '.' : '')));
   return s;

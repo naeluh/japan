@@ -20,11 +20,16 @@ PORT=3917 EDIT_KEY=devkey CRON_SECRET=cronsecret LOCAL_DB_FILE=/tmp/trip-dev.jso
 ## Check it
 - `npm test` (node:test over `test/*.test.mjs`): opening hours, scoring, alerts, calendar, Rakuten parsing, settle-up, taste, and `/api/db` on a throwaway store.
 - Everything must stay on free plans (the user can't pay for services): no paid APIs, no paid storage. Sites without open data get prefilled search links (`links` in `public/trip.js`), not scrapers or paid APIs.
-- Screens: `node scripts/shots.mjs "http://localhost:3917/?k=devkey#/deals" /tmp/deals --w 390 --h 844 --wait 4000 [--full] [--eval "js"] [--script file.js]`, then Read the PNGs (light and dark). Check phone width for horizontal overflow (`scrollWidth > innerWidth`) and that `li.item` count is 166 on a fresh seed.
+- Screens: `node scripts/shots.mjs "http://localhost:3917/?k=devkey#/deals" /tmp/deals --w 390 --h 844 --wait 4000 [--full] [--eval "js"] [--script file.js]`, then Read the PNGs (light and dark). Check phone width for horizontal overflow (`scrollWidth > innerWidth`) on every screen, Money included, and that `li.item` count is 166 on a fresh seed.
+- Route editor flow (`#routeBtn`): minus then plus on a city restores the same day (no to-dos move); Cancel saves nothing; +1 night lists hotel check-ins that move; add a city (live Nominatim lookup), remove one, Save; then read `/api/db?since=0`: `settings/route` changed and no `items/*` doc did. The removed days' to-dos show under `#unplaced`.
 - Drive real flows with `--script`: check-off (answers the name sheet), edit sheet save, add item, skip, expense, budget save; then read `/api/db?since=0` to prove the server has it. UI state alone proves nothing.
 - Offline: CDP `Network.emulateNetworkConditions({offline:true})`, check something off, reload, then go online and confirm the outbox empties and the server has the change.
 
 ## Traps this codebase has already hit
+- The route (cities, nights, days, dates) is data: `settings/route`, absent = `DEFAULT_ROUTE` in `public/trip.js`. `CHAPTERS`, `GROUPS`, `GROUP_DATE`, `CH_COORD`, `CH_CITY` are live bindings reassigned by `useRoute()`: never copy them into module-level constants (compute day lists inside functions), and never hardcode a chapter id like `c4` (use a stop flag such as `island`). The server calls `buildTrip(docs['settings/route'])` per run.
+- `cleanRoute` is the trust boundary for the route: ids must match `c\d+|city-…` and `d\d+|day-…`, because stop and day ids become element ids.
+- Items point at a day id; an item whose day is gone shows under "Not on a day yet". Removing days never rewrites items.
+- `isStay(i, groupDate)` takes the dates map as its second argument: call it as `filter(i => isStay(i))`, never point-free (`filter(isStay)` passes the index).
 - Duplicate ids: `#today` was both the Plan toolbar button and the Today screen, so the screen rendered into a hidden button. Screen containers use `...View` ids; run `grep -o 'id="[^"]*"' public/index.html | sort | uniq -d`.
 - One `<dialog>` serves every sheet: `openSheet` must settle the previous sheet's `onClose` before replacing it, or the name promise never resolves and every write waits forever.
 - Writes must never wait on the name question (the name only labels Recent changes).

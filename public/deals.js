@@ -1,6 +1,6 @@
 /* Deals: the nightly price watch on every stay, flexible dates, meals-included comparison, and sale-date reminders. */
 import { ctx, watchDoc } from './app.js';
-import { GROUP_DATE, TRIP, CH_CITY, groupCh, opensAt, stayLinks } from './trip.js';
+import { GROUP_DATE, TRIP, CH_CITY, groupCh, opensAt, stayLinks, isStay } from './trip.js';
 
 const { $, el, icon, withIcon, extLink, toast } = ctx;
 const API = window.TRIP_API;
@@ -8,9 +8,10 @@ let busy = false;
 let calToken = '';
 API.config.then(c => { calToken = c.calToken || ''; }).catch(() => {});
 
-const isStay = (i) => !i.disabled && i.cat === 'lodging' && !!i.hotelQuery && i.nights > 0 && !!GROUP_DATE[i.group];
 const md = (iso) => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-const signed = (n) => (n < 0 ? '−' : '+') + ctx.fJPY(Math.abs(n));
+const both = (n) => ctx.fAmt(n, 'JPY');                       // $412 · ¥63,800
+const usd = (n) => ctx.fUSD(ctx.toUSD(n, 'JPY'));               // $412
+const signed = (n) => (n < 0 ? '−' : '+') + both(Math.abs(n));
 const toJPY = (amount, cur) => cur === 'USD' ? amount * ctx.rate() : amount;
 
 async function checkNow(itemId, btn) {
@@ -33,7 +34,7 @@ function setupNotes() {
 }
 
 function stayCard(i) {
-  const w = watchDoc(i.id) || null;
+  const w = ctx.watchFor(i) || null;
   const latest = w && w.latest ? w.latest : (i.live ? { ...i.live, estimateTotal: i.live.estimateTotal } : null);
   const card = el('article', 'card pad stay');
   const head = el('div', 'stay-head');
@@ -54,20 +55,20 @@ function stayCard(i) {
   else if (!latest.found) priceRow.append(el('p', 'slab', latest.message || 'Not on Rakuten Travel. Try the Japanese name in Edit.'));
   else if (!latest.available) priceRow.append(el('p', 'slab warning', 'Sold out on Rakuten for your dates, or not on sale yet. You\'ll get an alert if rooms appear.'));
   else {
-    const big = el('p', 'bignum', ctx.fJPY(latest.estimateTotal));
+    const big = el('p', 'bignum', usd(latest.estimateTotal));
     const sub = el('p', 'stay-sub');
-    sub.append(el('span', 'badge info', 'Live'), document.createTextNode(' Rakuten, from ' + ctx.fJPY(latest.firstNight) + ' a night, ≈ ' + ctx.fUSD(ctx.toUSD(latest.estimateTotal, 'JPY')) + ' for both'));
+    sub.append(el('span', 'badge info', 'Live'), document.createTextNode(' ' + ctx.fJPY(latest.estimateTotal) + ' for ' + i.nights + (i.nights === 1 ? ' night' : ' nights') + ', both of you. Rakuten, from ' + both(latest.firstNight) + ' a night'));
     priceRow.append(big, sub);
     if (planned != null) {
       const diff = latest.estimateTotal - planned;
-      priceRow.append(el('p', diff <= 0 ? 'delta good' : 'delta bad', (diff <= 0 ? ctx.fJPY(-diff) + ' under' : ctx.fJPY(diff) + ' over') + ' the ' + ctx.fJPY(planned) + ' in the plan (est.)'));
+      priceRow.append(el('p', diff <= 0 ? 'delta good' : 'delta bad', (diff <= 0 ? usd(-diff) + ' under' : usd(diff) + ' over') + ' the ' + usd(planned) + ' in the plan (est.)'));
     }
   }
   card.append(priceRow);
   // Facts row: lowest seen, alert price
   const facts = el('div', 'pills');
-  if (w && w.low) facts.append(el('span', 'chip', 'Lowest seen ' + ctx.fJPY(w.low.total) + ', ' + md(w.low.d)));
-  const tgt = el('button', 'chip'); tgt.type = 'button'; withIcon(tgt, 'bell', i.target ? 'Alert under ' + ctx.fJPY(i.target) : 'Set an alert price');
+  if (w && w.low) facts.append(el('span', 'chip', 'Lowest seen ' + both(w.low.total) + ', ' + md(w.low.d)));
+  const tgt = el('button', 'chip'); tgt.type = 'button'; withIcon(tgt, 'bell', i.target ? 'Alert under ' + both(i.target) : 'Set an alert price');
   tgt.disabled = !ctx.canWrite; tgt.onclick = () => ctx.openEditor(i);
   facts.append(tgt);
   card.append(facts);
@@ -78,8 +79,8 @@ function stayCard(i) {
       const f = w.flex[key]; if (!f) continue;
       let text, cls = 'chip';
       if (f.total == null) text = name + ': no rooms';
-      else if (f.diff == null) text = name + ' has rooms: ' + ctx.fJPY(f.total);
-      else if (f.diff < 0) { text = name + ': save ' + ctx.fJPY(-f.diff); cls += ' good'; }
+      else if (f.diff == null) text = name + ' has rooms: ' + both(f.total);
+      else if (f.diff < 0) { text = name + ': save ' + both(-f.diff); cls += ' good'; }
       else if (f.diff === 0) text = name + ': same price';
       else text = name + ': ' + signed(f.diff);
       fx.append(el('span', cls, text));
@@ -94,11 +95,11 @@ function stayCard(i) {
     const out = n * pp * (meals.dinner + (m.roomOnly.breakfast ? 0 : meals.breakfast));
     const roomOnly = m.roomOnly.firstNight * n;
     const cmp = el('div', 'mealcmp');
-    const row = (label, value, note) => { const r = el('div', 'mrow'); r.append(el('span', null, label), el('span', 'num', ctx.fJPY(value))); if (note) r.append(el('span', 'muted', note)); return r; };
+    const row = (label, value, note) => { const r = el('div', 'mrow'); r.append(el('span', null, label), el('span', 'num', both(value))); if (note) r.append(el('span', 'muted', note)); return r; };
     cmp.append(row('Dinner and breakfast included', withMeals, m.withMeals.plan),
-      row(m.roomOnly.breakfast ? 'Breakfast only, dinners out' : 'Room only, meals out', roomOnly + out, ctx.fJPY(roomOnly) + ' + ≈ ' + ctx.fJPY(out) + ' eating out'));
+      row(m.roomOnly.breakfast ? 'Breakfast only, dinners out' : 'Room only, meals out', roomOnly + out, usd(roomOnly) + ' room + about ' + usd(out) + ' eating out'));
     const d = withMeals - (roomOnly + out);
-    cmp.append(el('p', 'delta ' + (d <= 0 ? 'good' : ''), Math.abs(d) < 1000 ? 'About the same either way.' : d < 0 ? 'Meals included saves ≈ ' + ctx.fJPY(-d) + '.' : 'Eating out saves ≈ ' + ctx.fJPY(d) + '.'));
+    cmp.append(el('p', 'delta ' + (d <= 0 ? 'good' : ''), Math.abs(d) < 1000 ? 'About the same either way.' : d < 0 ? 'Meals included saves about ' + both(-d) + '.' : 'Eating out saves about ' + both(d) + '.'));
     card.append(el('p', 'kicker', 'With meals, compared fairly'), cmp);
   }
   // Where to book
@@ -116,7 +117,7 @@ function stayCard(i) {
   if (w && Array.isArray(w.history) && w.history.length > 1) {
     const det = el('details', 'disclose'); const sum = el('summary', null, w.history.length + ' checks'); sum.append(icon('chevron')); det.append(sum);
     const ol = el('ol', 'hist');
-    w.history.slice(-14).reverse().forEach(h => { const li = el('li'); li.append(el('span', 'num', md(h.d)), el('span', 'num', h.total != null ? ctx.fJPY(h.total) : 'sold out')); ol.append(li); });
+    w.history.slice(-14).reverse().forEach(h => { const li = el('li'); li.append(el('span', 'num', md(h.d)), el('span', 'num', h.total != null ? both(h.total) : 'sold out')); ol.append(li); });
     det.append(ol); card.append(det);
   }
   if (w && w.checkedAt) card.append(el('p', 'help', 'Checked ' + ctx.ago(w.checkedAt) + '. Rakuten quotes the first night; the stay total is an estimate.'));
@@ -153,7 +154,7 @@ function saleCard() {
 }
 
 function alertsCard(stays) {
-  const all = stays.flatMap(i => { const w = watchDoc(i.id); return w && Array.isArray(w.alerts) ? w.alerts : []; }).sort((a, b) => b.at - a.at).slice(0, 8);
+  const all = stays.flatMap(i => { const w = ctx.watchFor(i); return w && Array.isArray(w.alerts) ? w.alerts : []; }).sort((a, b) => b.at - a.at).slice(0, 8);
   if (!all.length) return null;
   const card = el('section', 'card pad'); card.append(el('h2', 'card-title', 'Recent alerts'));
   const ul = el('ul', 'sales alerts');
@@ -166,7 +167,7 @@ function render() {
   const root = $('#deals'); if (!root) return;
   root.textContent = '';
   if (!ctx.loaded) return;
-  const stays = ctx.items.filter(isStay).sort((a, b) => GROUP_DATE[a.group].localeCompare(GROUP_DATE[b.group]));
+  const stays = ctx.items.filter(i => isStay(i)).sort((a, b) => GROUP_DATE[a.group].localeCompare(GROUP_DATE[b.group]));
   const meta = watchDoc('_meta');
   const top = el('div', 'deals-top');
   const last = el('p', 'muted', meta && meta.lastRun ? 'Last check ' + ctx.ago(meta.lastRun) + (meta.lastResult ? ', ' + meta.lastResult.checked + ' stays, ' + meta.lastResult.alerts + ' alerts.' : '.') : 'Checks run every night around 6 AM Japan time.');

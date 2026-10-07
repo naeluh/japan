@@ -18,14 +18,15 @@ Prices show dollars first with the yen beside them ($51 · ¥8,000) everywhere: 
 
 ## Choosing stays and trains
 
-Each city tab lists places to stay with April price ranges for two (hotels and ryokan, filter by type, 6 shown until **Show more**), the ways to get there from the city before, and things to do there. The first row is what's **On the plan** now, at the plan's own price. Pick any row to see what it does to the **Expected total for two**: stays use the route's nights, ryokan dinners come off the food budget, and the summary says how far the choices are from the plan. A stay can be split between two places (**Split this stay**, then the nights at the second one). Food style, shipping suitcases, shopping and flights are on the Overview.
+Each city tab lists places to stay with April price ranges for two (hotels and ryokan, filter by type, 6 shown until **Show more**), the ways to get there from the city before, and things to do there. The first row is what's **On the plan** now.
 
-- Choices are shared (both of you see the same picks, saved in `settings/picks`) and change only the estimate: nothing on the plan, in Money or in Recent changes moves while you explore. **Reset to the plan** clears them.
-- **Put this stay on the plan** adds "Check in at …" on the city's first night (two check-ins for a split stay) with the estimated cost in dollars, and skips the hotel to-dos it replaces (turn on **Skipped** to bring one back). It asks first, lists what it adds and skips, and warns when a skipped stay is paid or has a confirmation code. Money then counts the new stay. For live Rakuten prices, add the hotel's Japanese name in Edit.
-- Trains stay choices only: each travel day already has its train to-dos.
+- **Picking a stay or a train changes the plan at once**: the day-by-day gets "Check in at …" (or the train) in place of the old to-do, at the same time of day, and Money and the nightly price watch follow. The plan's own to-dos are skipped, not deleted, and **Back to the original plan** puts them back; a later pick replaces the one before instead of piling up. Anything paid or with a confirmation code asks first. Each pick is one line in Recent changes.
+- A train pick replaces only the long-distance part of that travel day (the Shinkansen, Romancecar, ferry and Marine Liner to-dos); taxis, local buses and the walk to the station stay. The airport choice covers the first and last day, half the round trip on each.
+- A stay can be split between two places (**Split this stay**, the nights at the second one, then the place): that makes two check-ins.
+- Food style, shipping suitcases, shopping and flights (Overview) and the things to do on each tab are shared choices that only shape the **Expected total for two** (saved in `settings/picks`; **Reset food and extras** clears them). Stays and trains in the total are what's on the plan.
+- Money tracks what's on the plan; the estimate card shows that figure too.
+- The options come from `public/catalog.js` (prices from recent published rates and 2026 fares at ¥155 to $1). A city added with **Change cities and nights** that isn't in the catalog gets Booking.com and Google hotel searches for its dates instead, and a Google Maps transit link for getting there. For live Rakuten prices on a stay picked here, add the hotel's Japanese name in Edit.
 - Rows show a photo when Wikipedia has a free one of that exact place (hotels, ryokan, museums, named trains), with the photographer and license linked under it. Each was matched once, by title and by being in Japan on Wikidata, and is stored with its row in `catalog.js`; small hotels without a Wikipedia article show an icon instead (a bed for stays; a train, bus or car for getting there; a ticket for things to do; a bike for the island e-bikes), in the city's color. A photo that stops loading turns into its icon. Nothing is looked up while you use the app.
-- Money still tracks what's on the plan; the estimate card shows that figure too, so the two totals are never confused.
-- The options come from `public/catalog.js` (prices from recent published rates and 2026 fares at ¥155 to $1). A city added with **Change cities and nights** that isn't in the catalog gets Booking.com and Google hotel searches for its dates instead, and a Google Maps transit link for getting there.
 
 ## Changing the route
 
@@ -118,7 +119,7 @@ Without `DATABASE_URL` the dev server keeps data in `.local-db.json` (`LOCAL_DB_
 
 - `public/index.html`, `app.css`, `app.js`: the page, the design tokens and components, and the core (sync, Plan, Money, sheets, routing).
 - `public/deals.js`, `explore.js`, `today.js`: the Deals, Explore (Nearby and Search) and Today screens.
-- `public/stays.js`: on the Plan screen, where to stay, getting there, things to do, trip-wide choices, the expected total and **Put this stay on the plan**.
+- `public/stays.js`: on the Plan screen, where to stay, getting there, things to do, trip-wide choices and the expected total; picking a stay or a train writes it into the plan.
 - `public/catalog.js`: the stays, trains and things to do with their prices, and the pure math behind the estimate (`readPicks` is the trust boundary for `settings/picks`; `npm test` covers it).
 - `public/trip.js`: trip facts and pure helpers shared by the page and the server: the default route and the route builder (`cleanRoute`, `buildTrip`; cities, nights, days and dates come from `settings/route`), Plan tab links (`planTarget`), search links, taste profile, settle-up, sale dates.
 - `public/shim.js`: connects the page to the API: key handling, 5-second sync, offline copy and outbox.

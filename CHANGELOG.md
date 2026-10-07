@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5.0 (2026-10-06)
+
+- Picking a stay or a train on a city tab now changes the day-by-day plan right away: the new check-in or train takes the old to-do's place and time, and Money and the price watch follow. The plan's own to-dos are skipped, not deleted; **Back to the original plan** restores them, and picking again replaces the previous pick. Paid or booked to-dos ask before they're replaced. "Put this stay on the plan" is gone (every pick does it).
+- Train picks replace only the long-distance to-dos of that day (Shinkansen, Romancecar, ferry, Marine Liner); the airport choice covers arrival and departure.
+- The estimate counts stays and trains as they are on the plan; food, extras, shopping and flights stay shared choices (**Reset food and extras**). Old stay and train picks in `settings/picks` are ignored.
+
 ## 2.4.1 (2026-10-06)
 
 - Stay, train and things-to-do rows without a photo show an icon instead (bed, train, bus, car, ticket or bike) in the city's color, so every row lines up; a photo that fails to load becomes its icon. The picture now comes first, right after the check, before the name.

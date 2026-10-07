@@ -7,7 +7,7 @@ import { applyCheck, flexFrom, opensAt, dueReminders } from '../api/_lib/alerts.
 import { toICS } from '../api/_lib/ics.js';
 import { summarizePlans } from '../api/_lib/rakuten.js';
 import { buildTrip, cleanRoute, isStay, DEFAULT_ROUTE, useRoute, planTarget } from '../public/trip.js';
-import { poolsFor, legKeys, readPicks, estimate, stayParts, POOLS, LEGS, EXTRAS, FOOD } from '../public/catalog.js';
+import { poolsFor, legKeys, readPicks, estimate, stayParts, stayOf, legPick, POOLS, LEGS, EXTRAS, FOOD } from '../public/catalog.js';
 
 test('opening hours: common forms', () => {
   // 2027-04-06 is a Tuesday
@@ -223,44 +223,56 @@ test('stays: cities map to option pools by name; legs join known pools', () => {
   for (const { photo: [src, credit, page] } of photos) assert.ok(/^https:\/\/(upload|thumb)\.wikimedia\.org\//.test(src) && credit.length > 3 && page.startsWith('https://commons.wikimedia.org/'), 'free Commons photo with a credit');
 });
 
-test('stays: readPicks is the trust boundary for settings/picks', () => {
-  const stops = stopsOf(DEFAULT_ROUTE, { c2: { usd: 750, name: 'Matsuzakaya', meals: 'db' } });
-  const d = readPicks(null, stops);
-  assert.deepEqual([d.stays.c1.a, d.stays.c2.a, d.stays.c5.a], ['trunk', 'plan', 'k5'], 'plan when there is one, else the default');
-  assert.equal(d.legs['tokyo>hakone'], 'romance'); assert.equal(d.food, 'balanced'); assert.equal(d.giants, 'infield');
-  const j = readPicks({ stays: { c1: { a: 'nope', split: true, b: 'trunk', bn: 9 }, c2: { a: 'fore', split: true, b: 'fore' }, c3: { a: 'ace', split: true, b: 'anteroom', bn: 0 }, c4: { a: 'plan' }, xx: { a: 'k5' } },
-    legs: { airport: 'teleport', 'tokyo>hakone': 'car' }, extras: { omakase: true, ghibli: 'yes' }, food: 'constructor', giants: 'toString', shopping: -5, flights: 1e9 }, stops);
-  assert.equal(j.stays.c1.a, 'trunk', 'unknown id falls back'); assert.equal(j.stays.c1.bn, 2, 'bn clamped to nights - 1');
-  assert.equal(j.stays.c2.b, null, 'second place can\'t be the first');
-  assert.deepEqual(j.stays.c3, { a: 'ace', split: true, b: 'anteroom', bn: 1 });
-  assert.equal(j.stays.c4.a, 'mylodge', 'plan only when the city has a stay on the plan');
-  assert.equal(j.stays.xx, undefined);
-  assert.equal(j.legs.airport, 'nex'); assert.equal(j.legs['tokyo>hakone'], 'car');
+test('stays: stays and trains are read from the plan; picks only hold the rest', () => {
+  const plan = (stays, nights, usd = 500) => ({ usd, name: 'x', stays, nights });
+  assert.deepEqual(stayOf({ pool: 'tokyo', nights: 3, plan: null }), { a: null, split: false, b: null, bn: 1 }, 'nothing on the plan');
+  assert.equal(stayOf({ pool: 'tokyo', nights: 3, plan: plan(['', ''], [1, 2]) }).a, 'plan', 'the plan\'s own hotels');
+  assert.equal(stayOf({ pool: 'tokyo', nights: 3, plan: plan(['trunk', ''], [2, 1]) }).a, 'plan', 'mixed counts as the plan');
+  assert.deepEqual(stayOf({ pool: 'tokyo', nights: 3, plan: plan(['trunk'], [3]) }), { a: 'trunk', split: false, b: null, bn: 1 });
+  assert.deepEqual(stayOf({ pool: 'tokyo', nights: 3, plan: plan(['trunk', 'mustard'], [2, 9]) }), { a: 'trunk', split: true, b: 'mustard', bn: 2 }, 'bn clamped to nights - 1');
+  assert.equal(stayOf({ pool: 'tokyo', nights: 3, plan: plan(['k9'], [3]) }).a, 'plan', 'an id the catalog lost');
+  assert.equal(legPick(null), null); assert.equal(legPick({ key: 'airport', usd: 0, opts: [], n: 0 }), null, 'no train on the plan');
+  assert.equal(legPick({ key: 'airport', usd: 46, opts: [''], n: 1 }), 'plan');
+  assert.equal(legPick({ key: 'airport', usd: 67, opts: ['nex', 'nex'], n: 2 }), 'nex');
+  const stops = stopsOf(DEFAULT_ROUTE, { c2: { usd: 750, meals: 'db', stays: [''], nights: [2] } });
+  const j = readPicks({ stays: { c2: { a: 'fore' } }, legs: { airport: 'car' }, extras: { omakase: true, ghibli: 'yes' }, food: 'constructor', giants: 'toString', shopping: -5, flights: 1e9 }, stops);
+  assert.equal(j.stays.c2.a, 'plan', 'old docs\' stay picks are ignored: the plan decides');
   assert.equal(j.extras.omakase, true); assert.equal(j.extras.ghibli, true);
   assert.equal(j.food, 'balanced', 'prototype keys are not options'); assert.equal(j.giants, 'infield');
   assert.equal(j.shopping, 200); assert.equal(j.flights, 0);
-  assert.equal(readPicks({ stays: { c2: { a: 'plan', split: true, b: 'fore' } } }, stops).stays.c2.split, false, 'no split on the plan row');
 });
 
-test('stays: the estimate follows the route, the plan and the picks', () => {
-  const stops = stopsOf(DEFAULT_ROUTE, { c2: { usd: 750, meals: 'db' } });
+test('stays: each leg replaces only the long-distance to-dos the plan has for it', () => {
+  const m = (k, t) => LEGS[k].match.test(t);
+  assert.ok(m('airport', 'Airport Limousine bus, Terminal 1 → Cerulean Tower') && m('airport', 'Skyliner, Nippori → Narita Airport Terminal 1'));
+  assert.ok(!m('airport', 'ZG024 departs') && !m('airport', 'Check out, head to Nippori Station'));
+  assert.ok(m('tokyo>hakone', 'Romancecar, Shinjuku → Hakone-Yumoto') && !m('tokyo>hakone', 'Check out, taxi to Shinjuku Station') && !m('tokyo>hakone', 'Bus H to Higashi Ashinoyu, 3-minute walk'));
+  assert.ok(m('hakone>kyoto', 'Hikari Shinkansen, Odawara → Kyoto') && !m('hakone>kyoto', 'Train, Hakone-Yumoto → Odawara') && !m('hakone>kyoto', 'Taxi to the Higashiyama ryokan'));
+  assert.ok(['Nozomi Shinkansen, Kyoto → Okayama', 'Marine Liner to Chayamachi, change for Uno', 'Ferry, Uno → Miyanoura'].every(t => m('kyoto>naoshima', t)));
+  assert.ok(!m('kyoto>naoshima', 'Taxi to Kyoto Station') && !m('kyoto>naoshima', 'Ride to the Chichu ticket center'));
+  assert.ok(['Ferry, Miyanoura → Uno', 'Train, Uno → Okayama (change at Chayamachi)', 'Nozomi Shinkansen, Okayama → Tokyo'].every(t => m('naoshima>tokyo2', t)) && !m('naoshima>tokyo2', 'JR to Nippori'));
+});
+
+test('stays: the estimate follows the route and what is on the plan', () => {
+  const stops = stopsOf(DEFAULT_ROUTE, { c1: { usd: 0, stays: ['trunk'], nights: [3] }, c2: { usd: 750, meals: 'db', stays: [''], nights: [2] } });
+  stops[0].ride = { key: 'airport', usd: 67, opts: ['nex', 'nex'], n: 2 };
+  stops[1].ride = { key: 'tokyo>hakone', usd: 20, opts: [''], n: 1 };
   const p = readPicks(null, stops), e = estimate(p, stops);
   const trunk = POOLS.tokyo.find(o => o.id === 'trunk');
   assert.equal(stayParts(stops[0], p.stays.c1)[0].n, 3, 'Tokyo nights come from the route');
   assert.equal(e.stays.find(x => x.stop === 'c1').lo, trunk.lo * 3);
-  assert.equal(e.stays.find(x => x.stop === 'c2').lo, 750, 'the plan row costs what the plan says');
+  assert.equal(e.stays.find(x => x.stop === 'c2').lo, 750, 'the plan\'s own stay costs what the plan says');
+  assert.equal(e.stays.filter(x => x.stop === 'c3').length, 0, 'nothing on the plan, nothing counted');
   assert.equal(e.nights, 13);
   assert.equal(e.food, FOOD.balanced * 2 * 13 - 80 * 2, 'ryokan dinners come off food');
-  const tokyoTwo = { ...p, stays: { ...p.stays, c1: { a: 'trunk', split: true, b: 'mustard', bn: 1 } } };
-  assert.deepEqual(stayParts(stops[0], tokyoTwo.stays.c1).map(x => x.o.id + ':' + x.n), ['trunk:2', 'mustard:1']);
-  assert.equal(estimate(tokyoTwo, stops).staysLo, e.staysLo - trunk.lo + POOLS.tokyo.find(o => o.id === 'mustard').lo);
-  // Remove Hakone and Naoshima: their extras, the bikes and the legs into them stop counting.
+  assert.equal(e.transport, 67 + 20 + 130 + 77 + 50, 'trains as on the plan, bikes with the island');
+  const split = { ...p, stays: { ...p.stays, c1: { a: 'trunk', split: true, b: 'mustard', bn: 1 } } };
+  assert.deepEqual(stayParts(stops[0], split.stays.c1).map(x => x.o.id + ':' + x.n), ['trunk:2', 'mustard:1']);
   const r = structuredClone(DEFAULT_ROUTE); r.stops.splice(3, 1); r.stops.splice(1, 1);
-  const s2 = stopsOf(r), p2 = readPicks(null, s2), e2 = estimate(p2, s2);
-  assert.deepEqual(Object.keys(p2.legs), ['airport']);
+  const s2 = stopsOf(r), e2 = estimate(readPicks(null, s2), s2);
   const ext = EXTRAS.filter(x => x.on && ['tokyo', 'kyoto'].includes(x.pool)).reduce((n, x) => n + x.cost, 0);
-  assert.equal(e2.activities, 120 + ext);
-  assert.equal(e2.transport, 67 + 130 + 77, 'no bikes without an island');
+  assert.equal(e2.activities, 120 + ext, 'no Hakone or Naoshima extras once they leave the route');
+  assert.equal(e2.transport, 130 + 77, 'no bikes without an island');
 });
 
 test('plan tabs: links resolve from data, not the page', () => {

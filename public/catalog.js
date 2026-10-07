@@ -13,7 +13,6 @@ export const CITY = {
   kyoto: { jp: '京都', color: 'kyoto' },
   naoshima: { jp: '直島', color: 'naoshima' }
 };
-export const DEFAULT_STAY = { tokyo: 'trunk', tokyo2: 'k5', hakone: 'fore', kyoto: 'ace', naoshima: 'mylodge' };
 
 // lo/hi = estimated April price per night for two. meals: 'db' dinner and breakfast, 'b' breakfast.
 // photo: [thumbnail, credit, license page], a free Wikipedia lead image of that exact place, matched once and checked (see the trip-planner skill).
@@ -94,29 +93,31 @@ export const POOLS = {
   ]
 };
 
-/* Ways to travel, keyed by the pools they join. Costs are for both of you, converted at ¥155 to $1. approx: rough figure. */
+/* Ways to travel, keyed by the pools they join. Costs are for both of you, converted at ¥155 to $1. approx: rough figure.
+   match: which of the plan's own travel to-dos on that day this leg replaces (the long-distance part; local buses,
+   taxis and the walk to the station stay). The airport leg covers the first and the last day. */
 export const LEGS = {
-  airport: { title: 'Narita Airport and Tokyo', note: 'Prices cover both trips.', def: 'nex', options: [
+  airport: { title: 'Narita Airport and Tokyo', note: 'Prices cover both trips.', def: 'nex', match: /limousine|narita express|skyliner|airport bus|narita airport/i, options: [
     { id: 'nex', name: 'Narita Express round-trip ticket', d: 'To Shibuya on arrival, back from Tokyo Station on departure (about 1 hour). ¥5,200 each for visitors, valid 14 days.', cost: 67, url: 'https://www.jreast.co.jp/en/multi/pass/nex.html', photo: ['https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2d/JRE_Series-E259R-Ne003.jpg/330px-JRE_Series-E259R-Ne003.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail', 'MaedaAkihiko, CC0', 'https://commons.wikimedia.org/wiki/File:JRE_Series-E259R-Ne003.jpg'] },
     { id: 'limo', name: 'Airport Limousine Bus', d: 'No train changes, with stops at stations and big hotels. About ¥3,000 each way per person; traffic can add time.', cost: 77, url: 'https://www.limousinebus.co.jp/en/' },
     { id: 'lowcost', name: 'Low-cost bus to Tokyo Station, then train', d: 'About ¥1,500 each way per person, plus one train change.', cost: 45, url: 'https://www.japan-guide.com/e/e2027.html' },
     { id: 'car', name: 'Private car', d: 'Door to door with your bags. Roughly ¥25,000–30,000 per car each way.', cost: 355, approx: true, url: q('Narita airport private transfer Shibuya') }
   ] },
-  'tokyo>hakone': { def: 'romance', options: [
+  'tokyo>hakone': { def: 'romance', match: /romancecar|shinkansen|freepass/i, options: [
     { id: 'romance', name: 'Romancecar + 2-day Hakone Freepass', d: 'Shinjuku to Hakone-Yumoto in about 80 minutes. The pass covers all Hakone buses, the ropeway and the lake boat. ¥7,100 pass + ¥1,200 seat each.', cost: 107, url: 'https://hakonetrip.odakyu-global.com/passes/hakone-freepass/', photo: ['https://thumb.wikimedia.org/wikipedia/commons/thumb/9/91/Model_3000_SE_of_Odakyu_Electric_Railway.JPG/330px-Model_3000_SE_of_Odakyu_Electric_Railway.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail', 'Lover of Romance, CC BY-SA 3.0', 'https://commons.wikimedia.org/wiki/File:Model_3000_SE_of_Odakyu_Electric_Railway.JPG'] },
     { id: 'shink', name: 'Shinkansen to Odawara + Hakone Freepass', d: 'Faster from Tokyo or Shinagawa Station, then the Hakone-area pass (¥6,000 each).', cost: 126, approx: true, url: 'https://smart-ex.jp/en/', photo: ['https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b9/161223_Odawara_Station_Odawara_Japan01s3.jpg/330px-161223_Odawara_Station_Odawara_Japan01s3.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail', '663highland, CC BY 2.5', 'https://commons.wikimedia.org/wiki/File:161223_Odawara_Station_Odawara_Japan01s3.jpg'] },
     { id: 'car', name: 'Private driver to your hotel', d: 'About 2 hours door to door, roughly ¥40,000–50,000 per car. Includes a Hakone-area pass for the loop.', cost: 367, approx: true, url: q('Tokyo to Hakone private driver') }
   ] },
-  'hakone>kyoto': { note: 'The bus to Odawara is covered by the Freepass.', def: 'hikari', options: [
+  'hakone>kyoto': { note: 'The bus to Odawara is covered by the Freepass.', def: 'hikari', match: /shinkansen|hikari/i, options: [
     { id: 'hikari', name: 'Hikari Shinkansen, reserved seats', d: 'Odawara to Kyoto in about 2 hours. ¥12,100 each. Sit in seat E for Mt. Fuji.', cost: 156, url: 'https://smart-ex.jp/en/', photo: ['https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8e/JRW-700-hikari-railstar.jpg/330px-JRW-700-hikari-railstar.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail', 'Mitsuki-2368, CC BY-SA 3.0', 'https://commons.wikimedia.org/wiki/File:JRW-700-hikari-railstar.jpg'] },
     { id: 'green', name: 'Hikari Shinkansen, Green Car', d: 'First-class seats, ¥16,970 each.', cost: 219, url: 'https://smart-ex.jp/en/', photo: ['https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8e/JRW-700-hikari-railstar.jpg/330px-JRW-700-hikari-railstar.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail', 'Mitsuki-2368, CC BY-SA 3.0', 'https://commons.wikimedia.org/wiki/File:JRW-700-hikari-railstar.jpg'] }
   ] },
-  'kyoto>naoshima': { def: 'uno', options: [
+  'kyoto>naoshima': { def: 'uno', match: /shinkansen|nozomi|marine liner|ferry|uno\b/i, options: [
     { id: 'uno', name: 'Shinkansen, Uno Line and ferry', d: 'Nozomi to Okayama (about 1 hour, about ¥7,700), JR to Uno (¥590), then a 20-minute ferry (¥370).', cost: 112, url: 'https://benesse-artsite.jp/en/access/', photo: ['https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2b/JRW_213_series_C-03_20220102.jpg/330px-JRW_213_series_C-03_20220102.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail', 'Mitsuki-2368, CC BY-SA 4.0', 'https://commons.wikimedia.org/wiki/File:JRW_213_series_C-03_20220102.jpg'] },
     { id: 'unogreen', name: 'Same route, Green Car to Okayama', d: 'About ¥11,350 each for the Shinkansen.', cost: 159, url: 'https://smart-ex.jp/en/', photo: ['https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2b/JRW_213_series_C-03_20220102.jpg/330px-JRW_213_series_C-03_20220102.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail', 'Mitsuki-2368, CC BY-SA 4.0', 'https://commons.wikimedia.org/wiki/File:JRW_213_series_C-03_20220102.jpg'] },
     { id: 'taka', name: 'Via Takamatsu', d: 'Marine Liner over the Seto Ohashi Bridge (¥1,550), then a 50-minute ferry (¥680). Slower, more scenic.', cost: 128, url: 'https://benesse-artsite.jp/en/access/', photo: ['https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f5/JRS_Series5000-M5_Marine-liner-41.jpg/330px-JRS_Series5000-M5_Marine-liner-41.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail', 'MaedaAkihiko, CC BY-SA 4.0', 'https://commons.wikimedia.org/wiki/File:JRS_Series5000-M5_Marine-liner-41.jpg'] }
   ] },
-  'naoshima>tokyo2': { note: 'About 5 hours door to door.', def: 'nozomi', options: [
+  'naoshima>tokyo2': { note: 'About 5 hours door to door.', def: 'nozomi', match: /shinkansen|nozomi|ferry|uno\b/i, options: [
     { id: 'nozomi', name: 'Ferry, Uno Line and Nozomi', d: 'Nozomi Okayama to Tokyo, ¥17,770 each.', cost: 242, url: 'https://smart-ex.jp/en/', photo: ['https://thumb.wikimedia.org/wikipedia/commons/thumb/2/20/Series-N700A-F20.jpg/330px-Series-N700A-F20.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail', 'MaedaAkihiko, CC BY-SA 4.0', 'https://commons.wikimedia.org/wiki/File:Series-N700A-F20.jpg'] },
     { id: 'nozomigreen', name: 'Same route, Green Car', d: 'Nozomi Green Car, ¥23,840 each.', cost: 320, url: 'https://smart-ex.jp/en/', photo: ['https://thumb.wikimedia.org/wikipedia/commons/thumb/2/20/Series-N700A-F20.jpg/330px-Series-N700A-F20.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail', 'MaedaAkihiko, CC BY-SA 4.0', 'https://commons.wikimedia.org/wiki/File:Series-N700A-F20.jpg'] }
   ] }
@@ -158,22 +159,28 @@ export function legKeys(pools) {
   return pools.map((p, i) => i === 0 ? 'airport' : (pools[i - 1] && p && LEGS[pools[i - 1] + '>' + p] ? pools[i - 1] + '>' + p : null));
 }
 
-/* stops: [{ id, pool, nights, island, plan: { usd, meals } | null }] where plan is what's on the plan for that city now. */
-export function defaultStay(s) { return s.plan ? 'plan' : (findOpt(s.pool, DEFAULT_STAY[s.pool]) ? DEFAULT_STAY[s.pool] : null); }
+/* stops: [{ id, pool, nights, island, plan, ride }] built from the plan itself:
+   plan = the city's stay on the plan now: { usd, name, meals, stays: [catalog id or '' per to-do], nights: [per to-do] } | null
+   ride = the train into the city: { key, usd, opts: [catalog id or '' per to-do], n: to-dos on the plan } | null
+   Stays and trains are read from the plan (picking one writes it there); everything else from settings/picks. */
+export function stayOf(s) {
+  const p = s.plan;
+  if (!p) return { a: null, split: false, b: null, bn: 1 };
+  const ids = p.stays || [];
+  if (!ids.length || ids.length > 2 || !ids.every(id => findOpt(s.pool, id))) return { a: 'plan', split: false, b: null, bn: 1 };
+  const bn = ids.length === 2 ? Math.min(Math.max(Math.round(Number(p.nights[1])) || 1, 1), Math.max(1, s.nights - 1)) : 1;
+  return { a: ids[0], split: ids.length === 2, b: ids[1] || null, bn };
+}
+export function legPick(r) {
+  if (!r || !r.key || !LEGS[r.key] || !r.n) return null;
+  return r.opts.length && r.opts.every(id => LEGS[r.key].options.some(o => o.id === id)) ? r.opts[0] : 'plan';
+}
 
-/* The trust boundary for settings/picks: anything unknown falls back to the default (no doc = what's on the plan). */
+/* The trust boundary for settings/picks: anything unknown falls back to the default. */
 export function readPicks(doc, stops) {
-  const d = obj(doc), ds = obj(d.stays), dl = obj(d.legs), dx = obj(d.extras);
+  const d = obj(doc), dx = obj(d.extras);
   const stays = {}, legs = {}, extras = {};
-  for (const s of stops) {
-    const v = obj(ds[s.id]);
-    const a = (v.a === 'plan' && s.plan) || findOpt(s.pool, v.a) ? v.a : defaultStay(s);
-    const catalog = !!a && a !== 'plan';
-    const b = catalog && v.b !== a && findOpt(s.pool, v.b) ? v.b : null;
-    const bn = Math.min(Math.max(Math.round(Number(v.bn)) || 1, 1), Math.max(1, s.nights - 1));
-    stays[s.id] = { a, split: catalog && v.split === true && s.nights > 1, b, bn };
-  }
-  for (const k of legKeys(stops.map(s => s.pool))) if (k) legs[k] = legOpt(k, dl[k]).id;
+  for (const s of stops) { stays[s.id] = stayOf(s); if (s.ride && s.ride.key) legs[s.ride.key] = legPick(s.ride); }
   for (const e of EXTRAS) extras[e.id] = typeof dx[e.id] === 'boolean' ? dx[e.id] : e.on;
   const num = (v, d, max) => typeof v === 'number' && v >= 0 && v <= max ? v : d;
   return {
@@ -204,7 +211,8 @@ export function estimate(p, stops) {
   }
   const nights = stops.reduce((n, s) => n + s.nights, 0);
   const food = Math.max(0, FOOD[p.food] * 2 * nights - credit);
-  let legs = 0; for (const [k, id] of Object.entries(p.legs)) if (LEGS[k]) legs += legOpt(k, id).cost;
+  let legs = 0;
+  for (const s of stops) { const r = s.ride, pk = r && p.legs[r.key]; if (pk) legs += pk === 'plan' ? r.usd : legOpt(r.key, pk).cost; }
   const island = stops.some(s => s.island);
   const transport = legs + TRANSIT + (p.bags ? BAGS : 0) + (p.bikes && island ? BIKES : 0);
   const pools = new Set(stops.map(s => s.pool));

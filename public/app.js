@@ -1411,14 +1411,19 @@ function write(id, patch, logText) {
   if (!db || !canWrite) return;
   const it = items.find(x => x.id === id); if (it) Object.assign(it, patch); render();
   chain(id, () => db.collection('items').doc(id).update(Object.assign({}, patch, stamp())))
-    .then(() => addLog(logText)).catch(handleErr);
+    .then(() => { if (logText) addLog(logText); }).catch(handleErr);   // no logText: the caller logs one line for a batch
 }
 function create(data, logText) {
   if (!db || !canWrite) return;
   const ref = db.collection('items').doc();
   items.push(Object.assign({ id: ref.id }, data)); render();
-  chain(ref.id, () => ref.set(Object.assign({}, data, stamp()))).then(() => addLog(logText)).catch(handleErr);
+  chain(ref.id, () => ref.set(Object.assign({}, data, stamp()))).then(() => { if (logText) addLog(logText); }).catch(handleErr);
   return ref.id;
+}
+function remove(id, logText) {
+  if (!db || !canWrite) return;
+  items = items.filter(x => x.id !== id); render();
+  chain(id, () => db.collection('items').doc(id).delete()).then(() => { if (logText) addLog(logText); }).catch(handleErr);
 }
 function addLog(text) {
   if (!db) return Promise.resolve();
@@ -1489,7 +1494,7 @@ export const ctx = {
   $, el, sv, icon, withIcon, iconBtn, extLink, toast, openSheet, closeSheet, copyText, safeUrl, q,
   get items() { return items; }, live, get db() { return db; }, get uid() { return uid; }, get canWrite() { return canWrite; }, get features() { return features; },
   get settings() { return settings; }, get expenses() { return expenses; }, get loaded() { return loaded; }, get modules() { return modules; },
-  write, create, addLog, handleErr, render, go, register: (id, m) => { modules[id] = m; buildNav(); route(); if (loaded) render(); },
+  write, create, remove, addLog, handleErr, render, go, register: (id, m) => { modules[id] = m; buildNav(); route(); if (loaded) render(); },
   totals, cityInfo, nightsText,
   gapHooks, itemHooks, openEditor, checkBox, needEdit, flashItem, hasPin, mins, fmt12, dur, byTime, tokyoNow, timeRange, mapsUrl, routeUrl, mapQuery,
   toUSD, fUSD, fJPY, fAmt, hasCost, rate, addDaysISO, fmtOpens, wxText, walkLegFor, linkList, ago, CATS, watchFor

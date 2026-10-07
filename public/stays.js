@@ -1,14 +1,16 @@
 /* Plan: where to stay, how to get between cities, things to do, and the expected total for two.
-   Choices are shared (settings/picks) and change only the estimate; "Put this stay on the plan" writes the hotel to-do,
-   so Money and the price watch follow. Options and math live in catalog.js; nights always come from the route. */
+   Picking a stay or a train writes it into the day-by-day plan at once (Money and the price watch follow); food, extras,
+   shopping and flights are shared choices in settings/picks that only shape the estimate. Options and math live in
+   catalog.js; nights always come from the route. */
 import { ctx, docsOf } from './app.js';
 import { ROUTE, CHAPTERS, TRIP, TRIP_END, GROUP_DATE, dayLabel, addDays, links } from './trip.js';
 import { POOLS, LEGS, EXTRAS, CITY, GIANTS, GIANTS_LABEL, FOOD, FOOD_LABEL, TRANSIT, BAGS, BIKES, poolsFor, legKeys, readPicks, estimate, stayParts, findOpt, legOpt } from './catalog.js';
 
-const { el, icon, withIcon, extLink, toast, fUSD } = ctx;
+const { el, icon, extLink, fUSD } = ctx;
 const VISIBLE = 6;
 let typeFilter = 'all';            // per viewer: All / Hotels / Ryokan
 const expanded = new Set();        // stops showing every option
+const splitDraft = new Map();     // stop id -> nights at the second place, while the second place isn't chosen yet
 let lastMid = null;
 
 /* ---------- The route as the estimate sees it ---------- */
@@ -21,18 +23,33 @@ function matchOpt(pool, i) {
   return POOLS[pool].find(o => t.includes(norm(o.name))) || null;
 }
 const itemName = (i, m) => m ? m.name : (i.place ? i.place.split(',')[0] : i.title || 'Hotel');
+const usdOf = (list) => list.reduce((n, i) => n + (typeof i.cost === 'number' ? ctx.toUSD(i.cost, i.cur) : 0), 0);
+const byTime = (a, b) => (a.start || '99').localeCompare(b.start || '99') || (a.sort || 0) - (b.sort || 0);
+/* Each city as the estimate and the pickers see it, read from the plan's to-dos:
+   plan = its stay now (lodging to-dos on its days), orig = the plan's own stay that a pick skipped (to put back),
+   ride = the train into it: the to-dos on its travel day(s) this page added (leg) or that the leg's match names. */
 function stops() {
-  const pools = poolsFor(ROUTE.stops);
+  const pools = poolsFor(ROUTE.stops), keys = legKeys(pools), all = ctx.items;
   return ROUTE.stops.map((s, k) => {
-    const pool = pools[k], ids = new Set(s.days.map(d => d.id));
-    const items = ctx.live().filter(i => i.cat === 'lodging' && ids.has(i.group));
+    const pool = pools[k], dayAt = new Map(s.days.map((d, n) => [d.id, n]));
+    const lodg = all.filter(i => i.cat === 'lodging' && dayAt.has(i.group)).sort((a, b) => dayAt.get(a.group) - dayAt.get(b.group) || byTime(a, b));
+    const items = lodg.filter(i => !i.disabled);
     let plan = null;
     if (items.length) {
       const matched = items.map(i => matchOpt(pool, i));
-      plan = { items, matched, usd: items.reduce((n, i) => n + (typeof i.cost === 'number' ? ctx.toUSD(i.cost, i.cur) : 0), 0),
-        name: items.map((i, j) => itemName(i, matched[j])).join(', then '), meals: items.length === 1 && matched[0] ? matched[0].meals : undefined };
+      plan = { items, matched, usd: usdOf(items), name: items.map((i, j) => itemName(i, matched[j])).join(', then '),
+        meals: items.length === 1 && matched[0] ? matched[0].meals : undefined, stays: items.map(i => i.stay || ''), nights: items.map(i => i.nights || 0) };
     }
-    return { id: s.id, city: s.city, pool, nights: s.days.length, island: !!s.island, plan, days: s.days };
+    const orig = items.length && items.every(i => i.stay) ? lodg.filter(i => i.disabled && !i.stay) : [];
+    let ride = null;
+    if (keys[k]) {
+      const key = keys[k], days = k === 0 ? [s.days[0].id, ROUTE.home.id] : [s.days[0].id];
+      const on = all.filter(i => days.includes(i.group) && (i.leg ? i.leg.split('/')[0] === key : i.kind === 'travel' && LEGS[key].match.test(i.title || '')));
+      const live = on.filter(i => !i.disabled).sort((a, b) => days.indexOf(a.group) - days.indexOf(b.group) || byTime(a, b));
+      ride = { key, days, items: live, n: live.length, usd: usdOf(live), opts: live.map(i => i.leg ? i.leg.split('/')[1] : ''),
+        orig: live.length && live.every(i => i.leg) ? on.filter(i => i.disabled && !i.leg) : [] };
+    }
+    return { id: s.id, city: s.city, pool, nights: s.days.length, island: !!s.island, plan, orig, ride, days: s.days };
   });
 }
 const picksNow = (st) => readPicks(docsOf('settings/picks'), st);
@@ -45,7 +62,6 @@ function save(patch) {
   const raw = docsOf('settings/picks') || {};
   ctx.db.doc('settings/picks').set({ ...raw, ...patch, updatedAt: Date.now(), updatedBy: ctx.uid || null }).catch(ctx.handleErr);
 }
-function saveStay(id, v) { const raw = docsOf('settings/picks') || {}; save({ stays: { ...(raw.stays || {}), [id]: v } }); }
 function saveIn(key, id, v) { const raw = docsOf('settings/picks') || {}; save({ [key]: { ...(raw[key] || {}), [id]: v } }); }
 
 /* ---------- Small builders ---------- */
@@ -111,28 +127,82 @@ function checkRow({ id, checked, disabled, title, when, link, cost, onToggle, ph
 }
 function linkList(pairs) { const w = el('span', 'pick-links'); pairs.forEach(([t, u]) => { const a = extLink(u, t, 'pick-link'); if (a) w.append(a); }); return w; }
 
+/* ---------- Picking writes the plan ---------- */
+/* The picked stay or train becomes the city's to-do(s) at once. To-dos this page added before are replaced; the plan's
+   own are skipped (restorable, and "Back to …" restores them). The new to-do takes the old one's time and place in the day.
+   Anything paid or with a confirmation code asks first. One line in Recent changes per pick. */
+const nextSort = (gid) => Math.max(0, ...ctx.items.filter(x => x.group === gid).map(x => x.sort || 0)) + 10;
+function apply({ drop = [], skip = [], restore = [], add = [], log }) {
+  if (!ctx.canWrite) { ctx.needEdit(); return ctx.render(); }
+  const run = () => {
+    drop.forEach(i => ctx.remove(i.id)); skip.forEach(i => ctx.write(i.id, { disabled: true }));
+    restore.forEach(i => ctx.write(i.id, { disabled: false })); add.forEach(d => ctx.create(d));
+    ctx.addLog(log);
+  };
+  const booked = [...drop, ...skip].filter(i => i.paid || i.code);
+  if (!booked.length) return run();
+  let done = false;
+  const ok = el('button', 'btn', 'Change it'); ok.type = 'button'; ok.onclick = () => { done = true; ctx.closeSheet(); run(); };
+  const cancel = el('button', 'btn secondary', 'Keep the booking'); cancel.type = 'button'; cancel.onclick = ctx.closeSheet;
+  const body = el('div', 'pick-confirm');
+  const ul = el('ul'); booked.forEach(i => ul.append(el('li', null, '“' + (i.title || 'Untitled') + '”' + (i.code ? ', code ' + i.code : '') + (i.paid ? ', paid' : ''))));
+  body.append(el('p', null, 'Already booked:'), ul, el('p', 'help', 'Cancel that booking before you book something else. The to-do stays in the plan, skipped, so you can bring it back.'));
+  ctx.openSheet({ title: 'Change a booked ' + (booked[0].cat === 'lodging' ? 'stay' : 'train') + '?', body, foot: [cancel, ok], onClose: () => { if (!done) ctx.render(); } });
+}
+function pickStay(s, v) {
+  const live = s.plan ? s.plan.items : [], mine = live.filter(i => i.stay), theirs = live.filter(i => !i.stay);
+  if (v === 'orig') return apply({ drop: mine, restore: s.orig, log: 'Put the ' + s.city + ' stay back to ' + s.orig.map(i => itemName(i)).join(', then ') });
+  const parts = stayParts(s, v); let k = 0;
+  const add = parts.map(x => {
+    const day = s.days[k].id, was = live.find(i => i.group === day); k += x.n;
+    return { group: day, sort: was ? was.sort || 0 : nextSort(day), done: false, title: 'Check in at ' + x.o.name, detail: x.o.blurb, priority: 'high',
+      start: was ? was.start || '' : '', end: was ? was.end || '' : '', kind: 'activity', place: x.o.name + ', ' + x.o.area, lat: null, lng: null,
+      cost: Math.round((x.lo + x.hi) / 2), cur: 'USD', cat: 'lodging', paid: false, paidBy: null, nights: x.n,
+      links: x.o.url ? [{ label: x.o.linkLabel || 'Book', url: x.o.url }] : [], code: '', opens: '', target: null, stay: x.o.id };
+  });
+  apply({ drop: mine, skip: theirs, add, log: 'Changed the ' + s.city + ' stay to ' + parts.map(x => x.o.name + (parts.length > 1 ? ' (' + nights(x.n) + ')' : '')).join(', then ') });
+}
+function pickLeg(s, id) {
+  const r = s.ride, mine = r.items.filter(i => i.leg), theirs = r.items.filter(i => !i.leg);
+  if (id === 'orig') return apply({ drop: mine, restore: r.orig, log: 'Put the trains into ' + s.city + ' back to the plan\'s' });
+  const o = LEGS[r.key].options.find(x => x.id === id); if (!o) return;
+  const add = r.days.map(day => {   // the airport leg: one to-do on arrival and one on the way home, half the round trip each
+    const was = r.items.filter(i => i.group === day), first = was[0], last = was[was.length - 1];
+    return { group: day, sort: first ? first.sort || 0 : nextSort(day), done: false, title: o.name, detail: o.d, priority: 'medium',
+      start: first ? first.start || '' : '', end: first && first.start ? (last.end || last.start || '') : '', kind: 'travel', place: '', lat: null, lng: null,
+      cost: Math.round(o.cost / r.days.length), cur: 'USD', cat: 'transit', paid: false, paidBy: null,
+      links: o.url ? [{ label: 'Book tickets', url: o.url }] : [], code: '', opens: '', target: null, leg: r.key + '/' + o.id };
+  });
+  apply({ drop: mine, skip: theirs, add, log: 'Changed the trip into ' + s.city + ' to ' + o.name });
+}
+
 /* ---------- City tab: where to stay ---------- */
-function stayPicker(s, c, p) {
+function backRow(name, id, list, ic, onPick) {   // the plan's own to-dos a pick skipped: one row puts them back
+  return optRow({ name, id, value: 'orig', checked: false, title: 'Back to the original plan', area: list.map(i => i.title || 'Untitled').join(', then '),
+    tags: [tag('Skipped for now')], price: fUSD(usdOf(list)), onPick, ic });
+}
+function stayPicker(s, p) {
   const v = p.stays[s.id], box = el('div');
   const rows = el('div', 'pick-opts');
-  const hidden = new Set(s.plan ? s.plan.matched.filter(Boolean).map(o => o.id) : []);
-  const pick = (a) => saveStay(s.id, { ...v, a, b: v.b === a ? null : v.b });
-  if (s.plan) {
+  const onPick = (id) => { if (id === 'orig') pickStay(s, 'orig'); else if (id !== 'plan') pickStay(s, { a: id, split: false, b: null, bn: 1 }); };
+  const hidden = new Set(v.a === 'plan' ? s.plan.matched.filter(Boolean).map(o => o.id) : []);
+  if (v.a === 'plan') {
     const pl = s.plan, m = pl.matched.find(Boolean);
     const blurb = pl.items.map(i => (i.title || 'Hotel') + ' · ' + (i.nights > 0 ? nights(i.nights) : 'nights not set') + (typeof i.cost === 'number' ? ' · ' + fUSD(ctx.toUSD(i.cost, i.cur)) : '')).join('. ');
     const tags = [tag('On the plan', 'plan')];
     if (pl.items.some(i => i.paid)) tags.push(tag('Paid'));
     if (pl.matched.length === 1 && m) tags.push(...tagsFor(s.pool, m));
-    rows.append(optRow({ name: 'pk-' + s.id, id: 'pk-' + s.id + '-plan', value: 'plan', checked: v.a === 'plan', title: pl.name, area: pl.items.length > 1 ? 'Split across ' + pl.items.length + ' places' : (pl.items[0].place || '').split(',').slice(1).join(',').trim(),
-      blurb, tags, link: null, price: fUSD(pl.usd), per: fUSD(pl.usd / s.nights) + ' a night', onPick: pick, photo: pl.matched.length === 1 && m ? m.photo : null, ic: 'bed' }));
+    rows.append(optRow({ name: 'pk-' + s.id, id: 'pk-' + s.id + '-plan', value: 'plan', checked: true, title: pl.name, area: pl.items.length > 1 ? 'Split across ' + pl.items.length + ' places' : (pl.items[0].place || '').split(',').slice(1).join(',').trim(),
+      blurb, tags, link: null, price: fUSD(pl.usd), per: fUSD(pl.usd / s.nights) + ' a night', onPick, photo: pl.matched.length === 1 && m ? m.photo : null, ic: 'bed' }));
   }
+  if (s.orig.length) rows.append(backRow('pk-' + s.id, 'pk-' + s.id + '-orig', s.orig, 'bed', onPick));
   const all = s.pool ? POOLS[s.pool].filter(o => !hidden.has(o.id)) : [];
   all.sort((x, y) => (y.id === v.a) - (x.id === v.a));
   const fit = all.filter(o => typeFilter === 'all' || o.type === typeFilter || o.id === v.a);
   const open = expanded.has(s.id), shown = open ? fit : fit.filter((o, k) => k < VISIBLE || o.id === v.a);
   const parts = stayParts(s, v), aN = parts.length && v.a !== 'plan' ? parts[0].n : s.nights;
   shown.forEach(o => rows.append(optRow({ name: 'pk-' + s.id, id: 'pk-' + s.id + '-' + o.id, value: o.id, checked: o.id === v.a, title: o.name, area: o.area, blurb: o.blurb,
-    tags: tagsFor(s.pool, o), link: bookLink(o), price: fUSD((o.lo + o.hi) / 2 * (o.id === v.a ? aN : s.nights)), per: range(o), onPick: pick, photo: o.photo, ic: 'bed' })));
+    tags: [...(o.id === v.a ? [tag('On the plan', 'plan')] : []), ...tagsFor(s.pool, o)], link: bookLink(o), price: fUSD((o.lo + o.hi) / 2 * (o.id === v.a ? aN : s.nights)), per: range(o), onPick, photo: o.photo, ic: 'bed' })));
   if (s.pool) {
     const seg = el('div', 'seg'); seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', 'Show stays');
     [['all', 'All stays'], ['hotel', 'Hotels'], ['ryokan', 'Ryokan']].forEach(([k, t]) => {
@@ -142,7 +212,7 @@ function stayPicker(s, c, p) {
     box.append(seg);
   }
   if (CITY[s.pool] && CITY[s.pool].note) box.append(el('p', 'pick-note', CITY[s.pool].note));
-  box.append(rows);
+  box.append(el('p', 'pick-note', 'Picking a stay puts it on the plan for these nights.'), rows);
   const foot = el('div', 'pick-foot');
   const more = fit.length - shown.length;
   if (more > 0 || open) {
@@ -154,32 +224,30 @@ function stayPicker(s, c, p) {
     foot.append(linkList([['Booking.com', links.booking(s.city + ' Japan', ci, co)], ['Google hotels', links.google('hotels in ' + s.city + ' Japan')]]));
   }
   if (foot.childNodes.length) box.append(foot);
-  if (v.a && v.a !== 'plan' && s.plan) {
-    const booked = s.plan.items.filter(i => i.paid || i.code);
-    if (booked.length) box.append(el('p', 'slab warning', booked.map(i => itemName(i)).join(' and ') + (booked.length === 1 ? ' is' : ' are') + ' already booked. Cancel before booking somewhere else.'));
-  }
   if (v.a && v.a !== 'plan' && s.nights > 1) box.append(splitBox(s, v));
-  if (v.a && v.a !== 'plan' && ctx.canWrite) {
-    const put = el('button', 'btn'); put.type = 'button'; put.id = 'pk-put-' + s.id;
-    withIcon(put, 'bed', 'Put this stay on the plan'); put.onclick = () => putOnPlan(s, c, v);
-    const row = el('div', 'pick-put'); row.append(put, el('span', 'help', s.plan ? 'Replaces ' + s.plan.name + ' on the plan.' : 'Adds the check-in to ' + dayLabel(GROUP_DATE[s.days[0].id]) + '.'));
-    box.append(row);
-  }
   return section('Where to stay', box);
 }
 function splitBox(s, v) {
   const box = el('div', 'pick-split');
-  const l = el('label', 'switch'); const cb = el('input'); cb.type = 'checkbox'; cb.id = 'pk-split-' + s.id; cb.checked = v.split; cb.disabled = !ctx.canWrite;
-  cb.onchange = () => saveStay(s.id, { ...v, split: cb.checked }); l.append(cb, document.createTextNode('Split this stay between two places')); box.append(l);
-  if (!v.split) return box;
+  const drafting = splitDraft.has(s.id), on = v.split || drafting, bn = v.split ? v.bn : (splitDraft.get(s.id) || 1);
+  const l = el('label', 'switch'); const cb = el('input'); cb.type = 'checkbox'; cb.id = 'pk-split-' + s.id; cb.checked = on; cb.disabled = !ctx.canWrite;
+  cb.onchange = () => {
+    if (cb.checked) { splitDraft.set(s.id, 1); ctx.render(); return; }
+    splitDraft.delete(s.id);
+    if (v.split) pickStay(s, { a: v.a, split: false, b: null, bn: 1 }); else ctx.render();
+  };
+  l.append(cb, document.createTextNode('Split this stay between two places')); box.append(l);
+  if (!on) return box;
   const row = el('div', 'pick-split-row');
   const n = el('select'); n.id = 'pk-splitn-' + s.id; n.setAttribute('aria-label', 'Nights at the second place'); n.disabled = !ctx.canWrite;
   for (let k = 1; k < s.nights; k++) { const o = el('option', null, nights(k)); o.value = String(k); n.append(o); }
-  n.value = String(v.bn); n.onchange = () => saveStay(s.id, { ...v, bn: Number(n.value) });
+  n.value = String(bn);
+  n.onchange = () => { if (v.split) pickStay(s, { ...v, bn: Number(n.value) }); else { splitDraft.set(s.id, Number(n.value)); ctx.render(); } };
   const b = el('select'); b.id = 'pk-splitb-' + s.id; b.setAttribute('aria-label', 'The second place'); b.disabled = !ctx.canWrite;
   const none = el('option', null, 'Choose a place'); none.value = ''; b.append(none);
   POOLS[s.pool].filter(o => o.id !== v.a).forEach(o => { const x = el('option', null, o.name + (o.type === 'ryokan' ? ' (ryokan)' : '') + ', ' + fUSD((o.lo + o.hi) / 2) + ' a night'); x.value = o.id; b.append(x); });
-  b.value = v.b || ''; b.onchange = () => saveStay(s.id, { ...v, b: b.value || null });
+  b.value = v.b || '';
+  b.onchange = () => { if (!b.value) return; splitDraft.delete(s.id); pickStay(s, { a: v.a, split: true, b: b.value, bn: Number(n.value) }); };
   row.append(el('span', null, 'Last'), n, el('span', null, 'at'), b); box.append(row);
   return box;
 }
@@ -193,7 +261,7 @@ function legInfo(st, k) {
   return { key, title, when, note: key && LEGS[key].note, prev };
 }
 function legPicker(st, k, p) {
-  const L = legInfo(st, k), box = el('div');
+  const L = legInfo(st, k), s = st[k], box = el('div');
   box.append(el('p', 'pick-note', L.title + ' · ' + L.when + (L.note ? '. ' + L.note : '')));
   if (!L.key) {
     const u = new URL('https://www.google.com/maps/dir/'); u.searchParams.set('api', '1');
@@ -201,10 +269,14 @@ function legPicker(st, k, p) {
     box.append(linkList([['Trains in Google Maps', u.href]]));
     return section('Getting here', box);
   }
-  const rows = el('div', 'pick-opts'), cur = p.legs[L.key];
+  const r = s.ride, cur = p.legs[L.key], rows = el('div', 'pick-opts');
+  const onPick = (id) => { if (id !== 'plan') pickLeg(s, id); };
+  if (cur === 'plan') rows.append(optRow({ name: 'pk-leg-' + k, id: 'pk-leg-' + k + '-plan', value: 'plan', checked: true, title: r.items.map(i => i.title || 'Untitled').join(', then '),
+    area: r.items.map(i => (GROUP_DATE[i.group] ? dayLabel(GROUP_DATE[i.group]) : '') + (i.start ? ' ' + ctx.fmt12(i.start) : '')).join(', '), tags: [tag('On the plan', 'plan')], price: fUSD(r.usd), onPick, ic: 'train' }));
+  if (r.orig.length) rows.append(backRow('pk-leg-' + k, 'pk-leg-' + k + '-orig', r.orig, 'train', onPick));
   LEGS[L.key].options.forEach(o => rows.append(optRow({ name: 'pk-leg-' + k, id: 'pk-leg-' + k + '-' + o.id, value: o.id, checked: o.id === cur, title: o.name, blurb: o.d,
-    link: bookLink(o, 'Book tickets'), price: (o.approx ? 'about ' : '') + fUSD(o.cost), onPick: (id) => saveIn('legs', L.key, id), photo: o.photo, ic: legIcon(o) })));
-  box.append(rows);
+    tags: o.id === cur ? [tag('On the plan', 'plan')] : [], link: bookLink(o, 'Book tickets'), price: (o.approx ? 'about ' : '') + fUSD(o.cost), onPick, photo: o.photo, ic: legIcon(o) })));
+  box.append(el('p', 'pick-note', 'Picking one puts it on the plan for ' + (r.days.length > 1 ? 'the first and last day' : 'that day') + ', in place of the trains it replaces.'), rows);
   return section('Getting here', box);
 }
 function thingsToDo(s, p) {
@@ -227,7 +299,7 @@ function city(c) {
   const st = stops(), k = st.findIndex(s => s.id === c.id); if (k < 0) return null;
   const s = st[k], p = picksNow(st), wrap = el('div', 'picks');
   wrap.style.setProperty('--line', ctx.cityInfo(c.id).line);
-  wrap.append(stayPicker(s, c, p), legPicker(st, k, p));
+  wrap.append(stayPicker(s, p), legPicker(st, k, p));
   const t = thingsToDo(s, p); if (t) wrap.append(t);
   wrap.append(el('h3', 'pick-days', 'Day by day'));
   return wrap;
@@ -238,17 +310,21 @@ function station(c) {
   const st = stops(), s = st.find(x => x.id === c.id); if (!s) return null;
   const v = picksNow(st).stays[s.id], parts = stayParts(s, v), line = el('p', 'rail-stay');
   line.append(icon('bed'));
-  if (!parts.length) { line.append(el('span', 'muted', 'No stay picked yet')); return line; }
+  if (!parts.length) { line.append(el('span', 'muted', 'No stay on the plan yet')); return line; }
   const name = v.a === 'plan' ? s.plan.name : parts.map(x => x.o.name + (parts.length > 1 ? ' (' + nights(x.n) + ')' : '')).join(', then ');
   const t = el('span', 'nm', name); t.append(el('span', 'amt', fUSD(parts.reduce((n, x) => n + (x.lo + x.hi) / 2, 0))));
-  if (v.a !== 'plan') t.append(el('span', 'pick-tag', 'Picked here, not on the plan yet'));   // only the exception gets a label
   line.append(t);
   return line;
 }
 function leg(prev, c) {
   const st = stops(), k = st.findIndex(s => s.id === c.id); if (k < 0) return null;
-  const L = legInfo(st, k), box = el('div');
-  if (L.key) { const o = legOpt(L.key, picksNow(st).legs[L.key]); const n = el('p', 'rail-legname'); n.append(el('span', null, o.name), el('span', 'amt', (o.approx ? 'about ' : '') + fUSD(o.cost))); box.append(n); }
+  const L = legInfo(st, k), box = el('div'), r = st[k].ride, cur = picksNow(st).legs[L.key];
+  if (cur) {
+    const n = el('p', 'rail-legname');
+    if (cur === 'plan') n.append(el('span', null, r.items.map(i => i.title || 'Untitled').join(', then ')), el('span', 'amt', fUSD(r.usd)));
+    else { const o = legOpt(L.key, cur); n.append(el('span', null, o.name), el('span', 'amt', (o.approx ? 'about ' : '') + fUSD(o.cost))); }
+    box.append(n);
+  }
   box.append(el('p', 'rail-when', L.title + ' · ' + (k ? L.when : dayLabel(TRIP.start))));
   return box;
 }
@@ -283,7 +359,7 @@ function overview() {
 
 /* ---------- The estimate ---------- */
 function aside() {
-  const st = stops(), p = picksNow(st), e = estimate(p, st), base = estimate(readPicks(null, st), st).mid;
+  const st = stops(), p = picksNow(st), e = estimate(p, st);
   const box = el('div', 'sum');
   box.append(el('h2', 'sum-h', 'Expected total for two'));
   box.lastChild.id = 'sumh';
@@ -292,9 +368,7 @@ function aside() {
     big.classList.add('flash'); requestAnimationFrame(() => requestAnimationFrame(() => big.classList.remove('flash')));
   }
   lastMid = e.mid;
-  const d = Math.round((e.mid - base) / 10) * 10;
-  box.append(big, Math.round(e.hi - e.lo) > 0 ? el('p', 'sum-range', 'Likely between ' + fUSD(e.lo) + ' and ' + fUSD(e.hi)) : '', el('p', 'sum-perday', 'About ' + fUSD(e.mid / (e.nights || 1)) + ' a day'),
-    el('p', 'sum-delta', d === 0 ? 'Same as the plan' : fUSD(Math.abs(d)) + (d > 0 ? ' more' : ' less') + ' than the plan'));
+  box.append(big, Math.round(e.hi - e.lo) > 0 ? el('p', 'sum-range', 'Likely between ' + fUSD(e.lo) + ' and ' + fUSD(e.hi)) : '', el('p', 'sum-perday', 'About ' + fUSD(e.mid / (e.nights || 1)) + ' a day'));
   const dl = el('dl', 'sum-dl');
   [['Places to stay', e.staysMid], ['Food and drink' + (e.credit ? ' (after ryokan meals)' : ''), e.food], ['Getting around (trains, ferries, bags)', e.transport],
     ['Things to do', e.activities], ['Data, taxes and shopping', e.other], ...(e.flights ? [['Flights', e.flights]] : [])]
@@ -304,51 +378,18 @@ function aside() {
   e.stays.forEach(x => { const li = el('li'); li.style.setProperty('--line', ctx.cityInfo(x.stop).line); li.append(el('i'), el('span', null, x.o.name + ', ' + nights(x.n))); ul.append(li); });
   box.append(ul);
   if (ctx.canWrite && docsOf('settings/picks')) {
-    const r = el('button', 'btn secondary sm', 'Reset to the plan'); r.type = 'button'; r.id = 'pk-reset';
+    const r = el('button', 'btn secondary sm', 'Reset food and extras'); r.type = 'button'; r.id = 'pk-reset';
     r.onclick = () => ctx.db.doc('settings/picks').set({ updatedAt: Date.now(), updatedBy: ctx.uid || null }).catch(ctx.handleErr);
     box.append(r);
   }
   const t = ctx.totals(), money = el('p', 'sum-fine'); const a = el('a', null, fUSD(t.all.paid + t.all.est) + ' projected'); a.href = '#/money';
   money.append(document.createTextNode('Money tracks what\'s on the plan: '), a, document.createTextNode('.'));
-  box.append(money, el('p', 'sum-fine', 'Estimates in US dollars for sakura season, April 2027. Option prices use ¥155 to $1, from recent published rates and 2026 fares; the stays on the plan use what the plan says. Check live prices before booking.'));
+  box.append(money, el('p', 'sum-fine', 'Estimates in US dollars for sakura season, April 2027: stays and trains as they are on the plan, food, extras and shopping as chosen here. Option prices use ¥155 to $1, from recent published rates and 2026 fares. Check live prices before booking.'));
   const chip = document.getElementById('estChip');
   chip.textContent = ''; chip.append(el('small', null, 'Estimate'), el('b', null, fUSD(e.mid))); chip.hidden = false;
   chip.setAttribute('aria-label', 'Expected total ' + fUSD(e.mid) + ', show the breakdown');
   return box;
 }
 document.getElementById('estChip').onclick = () => document.getElementById('estimate').scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-
-/* ---------- Put this stay on the plan: add the new check-in(s), skip the old ones (restorable) ---------- */
-function putOnPlan(s, c, v) {
-  if (!ctx.canWrite) return ctx.needEdit();
-  const parts = stayParts(s, v); if (!parts.length) return;
-  let k = 0;
-  const adds = parts.map(x => { const day = s.days[k].id; k += x.n; return { o: x.o, n: x.n, day, usd: Math.round((x.lo + x.hi) / 2) }; });
-  const old = s.plan ? s.plan.items : [];
-  const body = el('div', 'pick-confirm');
-  const ul = el('ul'); adds.forEach(a => ul.append(el('li', null, 'Check in at ' + a.o.name + ' · ' + dayLabel(GROUP_DATE[a.day]) + ' · ' + nights(a.n) + ' · about ' + fUSD(a.usd))));
-  body.append(el('p', null, 'Adds to the plan:'), ul);
-  if (old.length) {
-    const sk = el('ul'); old.forEach(i => sk.append(el('li', null, '“' + (i.title || 'Untitled') + '”' + (typeof i.cost === 'number' ? ' · ' + fUSD(ctx.toUSD(i.cost, i.cur)) : ''))));
-    body.append(el('p', null, 'Skips (they stay in the plan; turn on Skipped to bring one back):'), sk);
-    const booked = old.filter(i => i.paid || i.code);
-    if (booked.length) body.append(el('p', 'slab warning', booked.map(i => itemName(i) + (i.code ? ' (code ' + i.code + ')' : ' (paid)')).join(', ') + ': cancel that booking first.'));
-  }
-  body.append(el('p', 'help', 'Costs go to Money as estimates. For live prices, add the hotel\'s Japanese name in Edit.'));
-  const ok = el('button', 'btn'); ok.type = 'button'; withIcon(ok, 'bed', 'Put on the plan');
-  const cancel = el('button', 'btn secondary', 'Cancel'); cancel.type = 'button'; cancel.onclick = ctx.closeSheet;
-  ok.onclick = () => {
-    ctx.closeSheet();
-    const nextSort = (gid) => Math.max(0, ...ctx.items.filter(x => x.group === gid).map(x => x.sort || 0)) + 10;
-    adds.forEach(a => ctx.create({ group: a.day, sort: nextSort(a.day), done: false, title: 'Check in at ' + a.o.name, detail: a.o.blurb, priority: 'high', start: '', end: '', kind: 'activity',
-      place: a.o.name + ', ' + a.o.area, lat: null, lng: null, cost: a.usd, cur: 'USD', cat: 'lodging', paid: false, paidBy: null, nights: a.n,
-      links: a.o.url ? [{ label: a.o.linkLabel || 'Book', url: a.o.url }] : [], code: '', opens: '', target: null, stay: a.o.id }, 'Put ' + ctx.q(a.o.name) + ' on the plan for ' + s.city));
-    old.forEach(i => ctx.write(i.id, { disabled: true }, 'Skipped ' + ctx.q(i.title) + ' for ' + adds[0].o.name));
-    const raw = docsOf('settings/picks') || {}, stays = { ...(raw.stays || {}) }; delete stays[s.id];   // the new stay is now "On the plan"
-    save({ stays });
-    toast(adds.map(a => a.o.name).join(' and ') + ' is on the plan.');
-  };
-  ctx.openSheet({ title: 'Put this stay on the plan?', body, foot: [cancel, ok] });
-}
 
 ctx.register('plan', { station, leg, city, overview, aside });

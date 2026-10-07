@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.4.1 (2026-10-06)
+
+- Stay, train and things-to-do rows without a photo show an icon in the same spot (bed, train, bus, car, ticket or bike) in the city's color, so every row lines up; a photo that fails to load becomes its icon.
+
 ## 2.4.0 (2026-10-06)
 
 ### Plan, one city at a time

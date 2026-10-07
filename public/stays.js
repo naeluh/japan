@@ -70,17 +70,21 @@ function bookLink(o, fallback) {
   const w = el('span', 'pick-links'); w.append(a); if (o.how) w.append(el('span', 'pick-how', o.how)); return w;
 }
 /* One choice as a radio row: the whole row is the label. */
-/* A catalog row's photo: free Wikipedia lead images, resolved once and stored in catalog.js (photo: [src, credit, page]).
-   Decorative (the name sits beside it); the credit links to the file's license page. A file that stops loading just disappears. */
-function photoOf(row, ph, main) {
-  if (!ph) return null;
+/* A catalog row's picture: a free Wikipedia lead image, resolved once and stored in catalog.js (photo: [src, credit, page]),
+   else an icon for the kind of row (ic). Decorative (the name sits beside it); the credit links to the file's license page.
+   A photo that stops loading turns into the icon. */
+function photoOf(row, ph, main, ic) {
+  if (!ph && !ic) return null;
+  const tile = () => { const t = el('span', 'pick-icon'); t.append(icon(ic || 'tag')); return t; };
+  if (!ph) return tile();
   const img = el('img', 'pick-photo'); img.src = ph[0]; img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.width = 104; img.height = 78;
   const credit = extLink(ph[2], 'Photo: ' + ph[1], 'pick-credit');
-  img.onerror = () => { img.remove(); if (credit) credit.remove(); row.classList.remove('has-photo'); };
-  row.classList.add('has-photo'); if (credit) main.append(credit);
+  img.onerror = () => { img.replaceWith(tile()); if (credit) credit.remove(); };
+  if (credit) main.append(credit);
   return img;
 }
-function optRow({ name, id, value, checked, title, area, blurb, tags, link, price, per, onPick, photo }) {
+const legIcon = (o) => /\bbus\b/i.test(o.name) ? 'bus' : /private (car|driver)/i.test(o.name) ? 'car' : 'train';
+function optRow({ name, id, value, checked, title, area, blurb, tags, link, price, per, onPick, photo, ic }) {
   const l = el('label', 'pick-opt' + (checked ? ' is-on' : '')); l.htmlFor = id;
   const r = el('input'); r.type = 'radio'; r.name = name; r.id = id; r.value = value; r.checked = checked;
   r.disabled = !ctx.canWrite; r.onchange = () => { if (r.checked) onPick(value); };
@@ -90,18 +94,18 @@ function optRow({ name, id, value, checked, title, area, blurb, tags, link, pric
   if (tags && tags.length) { const t = el('span', 'pick-tags'); t.append(...tags); main.append(t); }
   if (link) main.append(link);
   const pr = el('span', 'pick-price'); pr.append(el('b', null, price)); if (per) pr.append(el('small', null, per));
-  const ph = photoOf(l, photo, main);
+  const ph = photoOf(l, photo, main, ic);
   l.append(r, main, ...(ph ? [ph] : []), pr);
   return l;
 }
-function checkRow({ id, checked, disabled, title, when, link, cost, onToggle, photo }) {
+function checkRow({ id, checked, disabled, title, when, link, cost, onToggle, photo, ic }) {
   const row = el('div', 'pick-check');
   const c = el('input'); c.type = 'checkbox'; c.id = id; c.checked = checked; c.disabled = disabled || !ctx.canWrite;
   c.onchange = () => onToggle(c.checked);
   const main = el('span', 'pick-main'); const l = el('label', 'pick-name', title); l.htmlFor = id; main.append(l);
   if (when) main.append(el('span', 'pick-blurb', when));
   if (link) main.append(link);
-  const ph = photoOf(row, photo, main);
+  const ph = photoOf(row, photo, main, ic);
   row.append(c, main, ...(ph ? [ph] : []), el('b', 'pick-cost', cost)); return row;
 }
 function linkList(pairs) { const w = el('span', 'pick-links'); pairs.forEach(([t, u]) => { const a = extLink(u, t, 'pick-link'); if (a) w.append(a); }); return w; }
@@ -119,7 +123,7 @@ function stayPicker(s, c, p) {
     if (pl.items.some(i => i.paid)) tags.push(tag('Paid'));
     if (pl.matched.length === 1 && m) tags.push(...tagsFor(s.pool, m));
     rows.append(optRow({ name: 'pk-' + s.id, id: 'pk-' + s.id + '-plan', value: 'plan', checked: v.a === 'plan', title: pl.name, area: pl.items.length > 1 ? 'Split across ' + pl.items.length + ' places' : (pl.items[0].place || '').split(',').slice(1).join(',').trim(),
-      blurb, tags, link: null, price: fUSD(pl.usd), per: fUSD(pl.usd / s.nights) + ' a night', onPick: pick, photo: pl.matched.length === 1 && m ? m.photo : null }));
+      blurb, tags, link: null, price: fUSD(pl.usd), per: fUSD(pl.usd / s.nights) + ' a night', onPick: pick, photo: pl.matched.length === 1 && m ? m.photo : null, ic: 'bed' }));
   }
   const all = s.pool ? POOLS[s.pool].filter(o => !hidden.has(o.id)) : [];
   all.sort((x, y) => (y.id === v.a) - (x.id === v.a));
@@ -127,7 +131,7 @@ function stayPicker(s, c, p) {
   const open = expanded.has(s.id), shown = open ? fit : fit.filter((o, k) => k < VISIBLE || o.id === v.a);
   const parts = stayParts(s, v), aN = parts.length && v.a !== 'plan' ? parts[0].n : s.nights;
   shown.forEach(o => rows.append(optRow({ name: 'pk-' + s.id, id: 'pk-' + s.id + '-' + o.id, value: o.id, checked: o.id === v.a, title: o.name, area: o.area, blurb: o.blurb,
-    tags: tagsFor(s.pool, o), link: bookLink(o), price: fUSD((o.lo + o.hi) / 2 * (o.id === v.a ? aN : s.nights)), per: range(o), onPick: pick, photo: o.photo })));
+    tags: tagsFor(s.pool, o), link: bookLink(o), price: fUSD((o.lo + o.hi) / 2 * (o.id === v.a ? aN : s.nights)), per: range(o), onPick: pick, photo: o.photo, ic: 'bed' })));
   if (s.pool) {
     const seg = el('div', 'seg'); seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', 'Show stays');
     [['all', 'All stays'], ['hotel', 'Hotels'], ['ryokan', 'Ryokan']].forEach(([k, t]) => {
@@ -198,14 +202,14 @@ function legPicker(st, k, p) {
   }
   const rows = el('div', 'pick-opts'), cur = p.legs[L.key];
   LEGS[L.key].options.forEach(o => rows.append(optRow({ name: 'pk-leg-' + k, id: 'pk-leg-' + k + '-' + o.id, value: o.id, checked: o.id === cur, title: o.name, blurb: o.d,
-    link: bookLink(o, 'Book tickets'), price: (o.approx ? 'about ' : '') + fUSD(o.cost), onPick: (id) => saveIn('legs', L.key, id), photo: o.photo })));
+    link: bookLink(o, 'Book tickets'), price: (o.approx ? 'about ' : '') + fUSD(o.cost), onPick: (id) => saveIn('legs', L.key, id), photo: o.photo, ic: legIcon(o) })));
   box.append(rows);
   return section('Getting here', box);
 }
 function thingsToDo(s, p) {
   const box = el('div', 'pick-checks');
   EXTRAS.filter(e => e.pool === s.pool).forEach(e => box.append(checkRow({ id: 'pk-x-' + e.id, checked: p.extras[e.id], title: e.name, when: e.when, link: linkList(e.links), cost: fUSD(e.cost),
-    onToggle: (on) => saveIn('extras', e.id, on), photo: e.photo })));
+    onToggle: (on) => saveIn('extras', e.id, on), photo: e.photo, ic: 'ticket' })));
   if (s.pool === 'tokyo') {
     const row = el('div', 'pick-check pick-select');
     const main = el('span', 'pick-main'); const l = el('label', 'pick-name', 'Giants game at Tokyo Dome'); l.htmlFor = 'pk-giants'; main.append(l,
@@ -215,7 +219,7 @@ function thingsToDo(s, p) {
     sel.value = p.giants; sel.onchange = () => save({ giants: sel.value });
     row.append(main, sel); box.append(row);
   }
-  if (s.island) box.append(checkRow({ id: 'pk-bikes', checked: p.bikes, title: 'E-bikes for the island, 2 days', when: 'Rent at Miyanoura Port when you arrive.', cost: fUSD(BIKES), onToggle: (on) => save({ bikes: on }) }));
+  if (s.island) box.append(checkRow({ id: 'pk-bikes', checked: p.bikes, title: 'E-bikes for the island, 2 days', when: 'Rent at Miyanoura Port when you arrive.', cost: fUSD(BIKES), onToggle: (on) => save({ bikes: on }), ic: 'bike' }));
   return box.childNodes.length ? section('Things to do here', el('p', 'pick-note', 'Costs are for both of you.'), box) : null;
 }
 function city(c) {

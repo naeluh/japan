@@ -75,6 +75,7 @@ function bookLink(o, fallback) {
    A photo that stops loading turns into the icon. */
 function photoOf(row, ph, main, ic) {
   if (!ph && !ic) return null;
+  row.classList.add('has-media');
   const tile = () => { const t = el('span', 'pick-icon'); t.append(icon(ic || 'tag')); return t; };
   if (!ph) return tile();
   const img = el('img', 'pick-photo'); img.src = ph[0]; img.alt = ''; img.loading = 'lazy'; img.decoding = 'async'; img.width = 104; img.height = 78;
@@ -95,7 +96,7 @@ function optRow({ name, id, value, checked, title, area, blurb, tags, link, pric
   if (link) main.append(link);
   const pr = el('span', 'pick-price'); pr.append(el('b', null, price)); if (per) pr.append(el('small', null, per));
   const ph = photoOf(l, photo, main, ic);
-  l.append(r, main, ...(ph ? [ph] : []), pr);
+  l.append(r, ...(ph ? [ph] : []), main, pr);
   return l;
 }
 function checkRow({ id, checked, disabled, title, when, link, cost, onToggle, photo, ic }) {
@@ -106,7 +107,7 @@ function checkRow({ id, checked, disabled, title, when, link, cost, onToggle, ph
   if (when) main.append(el('span', 'pick-blurb', when));
   if (link) main.append(link);
   const ph = photoOf(row, photo, main, ic);
-  row.append(c, main, ...(ph ? [ph] : []), el('b', 'pick-cost', cost)); return row;
+  row.append(c, ...(ph ? [ph] : []), main, el('b', 'pick-cost', cost)); return row;
 }
 function linkList(pairs) { const w = el('span', 'pick-links'); pairs.forEach(([t, u]) => { const a = extLink(u, t, 'pick-link'); if (a) w.append(a); }); return w; }
 

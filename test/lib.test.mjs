@@ -6,7 +6,8 @@ import { score, rank, classify, yearOf, isChain } from '../api/_lib/osm.js';
 import { applyCheck, flexFrom, opensAt, dueReminders } from '../api/_lib/alerts.js';
 import { toICS } from '../api/_lib/ics.js';
 import { summarizePlans } from '../api/_lib/rakuten.js';
-import { buildTrip, cleanRoute, isStay, DEFAULT_ROUTE } from '../public/trip.js';
+import { buildTrip, cleanRoute, isStay, DEFAULT_ROUTE, useRoute, planTarget } from '../public/trip.js';
+import { poolsFor, legKeys, readPicks, estimate, stayParts, POOLS, EXTRAS, FOOD } from '../public/catalog.js';
 
 test('opening hours: common forms', () => {
   // 2027-04-06 is a Tuesday
@@ -204,4 +205,70 @@ test('route: a stay on a removed day is not watched', () => {
   const r = structuredClone(DEFAULT_ROUTE); r.stops.splice(1, 1);
   assert.equal(isStay(stay, buildTrip(r).groupDate), false);
   assert.equal(isStay({ ...stay, disabled: true }, buildTrip(null).groupDate), false);
+});
+
+/* Stops as the Plan screen builds them: pool by city name, nights from the route, plan = what's on the plan now. */
+const stopsOf = (route, plan = {}) => { const pools = poolsFor(route.stops); return route.stops.map((s, k) => ({ id: s.id, pool: pools[k], nights: s.days.length, island: !!s.island, plan: plan[s.id] || null })); };
+
+test('stays: cities map to option pools by name; legs join known pools', () => {
+  assert.deepEqual(poolsFor(DEFAULT_ROUTE.stops), ['tokyo', 'hakone', 'kyoto', 'naoshima', 'tokyo2']);
+  assert.deepEqual(legKeys(poolsFor(DEFAULT_ROUTE.stops)), ['airport', 'tokyo>hakone', 'hakone>kyoto', 'kyoto>naoshima', 'naoshima>tokyo2']);
+  const r = structuredClone(DEFAULT_ROUTE);
+  r.stops.splice(3, 0, { id: 'city-osaka1', city: ' Osaka ', days: [{ id: 'day-osak' }] });
+  assert.deepEqual(poolsFor(r.stops), ['tokyo', 'hakone', 'kyoto', null, 'naoshima', 'tokyo2']);
+  assert.deepEqual(legKeys(poolsFor(r.stops)), ['airport', 'tokyo>hakone', 'hakone>kyoto', null, null, 'naoshima>tokyo2']);
+  assert.ok(POOLS.tokyo2[0].id === 'k5' && POOLS.tokyo2.some(o => o.id === 'trunk'), 'east side first, west side kept');
+});
+
+test('stays: readPicks is the trust boundary for settings/picks', () => {
+  const stops = stopsOf(DEFAULT_ROUTE, { c2: { usd: 750, name: 'Matsuzakaya', meals: 'db' } });
+  const d = readPicks(null, stops);
+  assert.deepEqual([d.stays.c1.a, d.stays.c2.a, d.stays.c5.a], ['trunk', 'plan', 'k5'], 'plan when there is one, else the default');
+  assert.equal(d.legs['tokyo>hakone'], 'romance'); assert.equal(d.food, 'balanced'); assert.equal(d.giants, 'infield');
+  const j = readPicks({ stays: { c1: { a: 'nope', split: true, b: 'trunk', bn: 9 }, c2: { a: 'fore', split: true, b: 'fore' }, c3: { a: 'ace', split: true, b: 'anteroom', bn: 0 }, c4: { a: 'plan' }, xx: { a: 'k5' } },
+    legs: { airport: 'teleport', 'tokyo>hakone': 'car' }, extras: { omakase: true, ghibli: 'yes' }, food: 'constructor', giants: 'toString', shopping: -5, flights: 1e9 }, stops);
+  assert.equal(j.stays.c1.a, 'trunk', 'unknown id falls back'); assert.equal(j.stays.c1.bn, 2, 'bn clamped to nights - 1');
+  assert.equal(j.stays.c2.b, null, 'second place can\'t be the first');
+  assert.deepEqual(j.stays.c3, { a: 'ace', split: true, b: 'anteroom', bn: 1 });
+  assert.equal(j.stays.c4.a, 'mylodge', 'plan only when the city has a stay on the plan');
+  assert.equal(j.stays.xx, undefined);
+  assert.equal(j.legs.airport, 'nex'); assert.equal(j.legs['tokyo>hakone'], 'car');
+  assert.equal(j.extras.omakase, true); assert.equal(j.extras.ghibli, true);
+  assert.equal(j.food, 'balanced', 'prototype keys are not options'); assert.equal(j.giants, 'infield');
+  assert.equal(j.shopping, 200); assert.equal(j.flights, 0);
+  assert.equal(readPicks({ stays: { c2: { a: 'plan', split: true, b: 'fore' } } }, stops).stays.c2.split, false, 'no split on the plan row');
+});
+
+test('stays: the estimate follows the route, the plan and the picks', () => {
+  const stops = stopsOf(DEFAULT_ROUTE, { c2: { usd: 750, meals: 'db' } });
+  const p = readPicks(null, stops), e = estimate(p, stops);
+  const trunk = POOLS.tokyo.find(o => o.id === 'trunk');
+  assert.equal(stayParts(stops[0], p.stays.c1)[0].n, 3, 'Tokyo nights come from the route');
+  assert.equal(e.stays.find(x => x.stop === 'c1').lo, trunk.lo * 3);
+  assert.equal(e.stays.find(x => x.stop === 'c2').lo, 750, 'the plan row costs what the plan says');
+  assert.equal(e.nights, 13);
+  assert.equal(e.food, FOOD.balanced * 2 * 13 - 80 * 2, 'ryokan dinners come off food');
+  const tokyoTwo = { ...p, stays: { ...p.stays, c1: { a: 'trunk', split: true, b: 'mustard', bn: 1 } } };
+  assert.deepEqual(stayParts(stops[0], tokyoTwo.stays.c1).map(x => x.o.id + ':' + x.n), ['trunk:2', 'mustard:1']);
+  assert.equal(estimate(tokyoTwo, stops).staysLo, e.staysLo - trunk.lo + POOLS.tokyo.find(o => o.id === 'mustard').lo);
+  // Remove Hakone and Naoshima: their extras, the bikes and the legs into them stop counting.
+  const r = structuredClone(DEFAULT_ROUTE); r.stops.splice(3, 1); r.stops.splice(1, 1);
+  const s2 = stopsOf(r), p2 = readPicks(null, s2), e2 = estimate(p2, s2);
+  assert.deepEqual(Object.keys(p2.legs), ['airport']);
+  const ext = EXTRAS.filter(x => x.on && ['tokyo', 'kyoto'].includes(x.pool)).reduce((n, x) => n + x.cost, 0);
+  assert.equal(e2.activities, 120 + ext);
+  assert.equal(e2.transport, 67 + 130 + 77, 'no bikes without an island');
+});
+
+test('plan tabs: links resolve from data, not the page', () => {
+  useRoute(null);
+  const items = [{ id: 'abc123', group: 'd07' }, { id: 'lost99', group: 'day-gone' }];
+  assert.equal(planTarget('', items), 'overview'); assert.equal(planTarget('overview', items), 'overview');
+  assert.equal(planTarget('c3', items), 'c3'); assert.equal(planTarget('book', items), 'book'); assert.equal(planTarget('unplaced', items), 'unplaced');
+  assert.equal(planTarget('d03', items), 'c1'); assert.equal(planTarget('d14', items), 'c5'); assert.equal(planTarget('b-feb', items), 'book');
+  assert.equal(planTarget('abc123', items), 'c3'); assert.equal(planTarget('lost99', items), 'unplaced');
+  assert.equal(planTarget('nothing', items), 'overview');
+  const r = structuredClone(DEFAULT_ROUTE); r.stops.splice(1, 1); useRoute(r);
+  assert.equal(planTarget('c2', items), 'overview', 'a removed city'); assert.equal(planTarget('d04', items), 'overview');
+  useRoute(null);
 });

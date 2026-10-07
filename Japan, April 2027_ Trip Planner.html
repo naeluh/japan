@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Japan, April 2027: Trip Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  --paper: #FAFAF8;
+  --ink: #1E2433;
+  --muted: #5E6573;
+  --rule: #DADDE3;
+  --panel: #EEF1F5;
+  --tokyo: #1F5BB5;
+  --hakone: #2F7D5A;
+  --kyoto: #9A3D6B;
+  --naoshima: #B98900;
+  --flash: #FFE9A8;
+  --mincho: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", Georgia, serif;
+  --gothic: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #14171F; --ink: #E9ECF2; --muted: #A4ABB8; --rule: #2C313D; --panel: #1C2029;
+    --tokyo: #6B9BE8; --hakone: #5DB38A; --kyoto: #D77AA8; --naoshima: #F0C040; --flash: #4A3F14;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #14171F; --ink: #E9ECF2; --muted: #A4ABB8; --rule: #2C313D; --panel: #1C2029;
+  --tokyo: #6B9BE8; --hakone: #5DB38A; --kyoto: #D77AA8; --naoshima: #F0C040; --flash: #4A3F14;
+}
+*, *::before, *::after { box-sizing: inherit; }
+html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
+body {
+  margin: 0; min-height: 100%;
+  background: var(--paper); color: var(--ink);
+  font-family: var(--gothic); font-size: 16px; line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-underline-offset: 3px; }
+:focus-visible { outline: 3px solid var(--tokyo); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.masthead { max-width: 1120px; margin: 0 auto; padding: 48px 24px 28px; }
+.masthead h1 { font-family: var(--mincho); font-weight: 800; font-size: clamp(34px, 6vw, 56px); line-height: 1.08; margin: 0 0 12px; letter-spacing: -0.01em; }
+.masthead p { margin: 0; max-width: 60ch; color: var(--muted); }
+
+.layout { max-width: 1120px; margin: 0 auto; padding: 0 24px 140px; display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 56px; align-items: start; }
+@media (max-width: 880px) { .layout { grid-template-columns: minmax(0, 1fr); gap: 32px; } }
+
+.toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 20px 56px; }
+.toolbar span { color: var(--muted); font-size: 14px; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 999px; padding: 3px; background: var(--paper); }
+.seg label { position: relative; }
+.seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.seg span.lbl { display: block; padding: 6px 14px; border-radius: 999px; font-size: 14px; color: var(--muted); }
+.seg input:checked + span.lbl { background: var(--ink); color: var(--paper); }
+.seg input:focus-visible + span.lbl { outline: 3px solid var(--tokyo); outline-offset: 1px; }
+
+/* The route: each stop is a station on a rail line */
+.stop { display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: 16px; }
+.rail { position: relative; }
+.rail::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 6px; margin-left: -3px; background: var(--line); }
+#route > :first-child .rail::before { top: 14px; }
+#route > :last-child .rail::before { bottom: auto; height: 40px; }
+.leg { display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: 16px; }
+.leg .rail::before { width: 4px; margin-left: -2px; background: repeating-linear-gradient(to bottom, var(--muted) 0 8px, transparent 8px 14px); }
+.leg .train { position: absolute; left: 50%; top: 4px; width: 30px; height: 30px; margin-left: -15px; border-radius: 8px; background: var(--paper); border: 2px solid var(--muted); display: grid; place-items: center; font-size: 15px; }
+.leg-body { padding: 4px 0 40px; min-width: 0; }
+.leg-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.leg-head h3 { margin: 0; font-size: 18px; }
+.leg-head .cost { font-family: var(--mincho); font-weight: 600; font-size: 19px; }
+.leg-when { margin: 0 0 8px; font-size: 14px; color: var(--muted); }
+.lopts { border-bottom: 1px solid var(--rule); }
+.lopt { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 2px 12px; padding: 10px 12px 10px 10px; border-top: 1px solid var(--rule); border-left: 4px solid transparent; cursor: pointer; font-size: 15px; }
+.lopt:hover { background: var(--panel); }
+.lopt.is-selected { border-left-color: var(--muted); background: var(--panel); }
+.lopt input { margin: 3px 0 0; width: 17px; height: 17px; accent-color: var(--ink); cursor: pointer; }
+.lopt b { font-weight: 700; }
+.lopt .d { display: block; font-size: 14px; color: var(--muted); }
+.lopt .c { white-space: nowrap; font-family: var(--mincho); font-weight: 600; }
+.links { display: block; margin-top: 4px; font-size: 14px; }
+.links a { margin-right: 14px; font-weight: 500; }
+.opt .links, .lopt .links { margin-top: 6px; }
+.links .d { display: inline; font-size: 13px; color: var(--muted); }
+.dot { position: absolute; left: 50%; top: 10px; width: 26px; height: 26px; margin-left: -13px; border-radius: 50%; background: var(--paper); border: 6px solid var(--line); }
+.stop-body { padding: 4px 0 48px; min-width: 0; }
+.stop-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.stop-head h2 { margin: 0; font-family: var(--mincho); font-weight: 800; font-size: 30px; line-height: 1.2; }
+.stop-head h2 .jp { font-size: 18px; color: var(--line); margin-left: 10px; font-weight: 600; }
+.stop-sub { font-family: var(--mincho); font-weight: 600; font-size: 22px; white-space: nowrap; }
+.dates { margin: 2px 0 14px; color: var(--muted); font-size: 15px; }
+
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.opts { border-bottom: 1px solid var(--rule); }
+.opt { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 4px 12px; align-items: start; padding: 14px 12px 14px 10px; border-top: 1px solid var(--rule); border-left: 4px solid transparent; cursor: pointer; }
+.opt:hover { background: var(--panel); }
+.opt.is-selected { border-left-color: var(--line); background: color-mix(in srgb, var(--line) 9%, transparent); }
+.opt input { margin: 4px 0 0; width: 18px; height: 18px; accent-color: var(--line); cursor: pointer; }
+.opt-name { font-weight: 700; display: block; }
+.opt-area { color: var(--muted); font-size: 14px; }
+.opt-blurb { display: block; font-size: 14px; margin-top: 2px; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.tag { font-size: 12px; line-height: 1; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--rule); color: var(--muted); }
+.tag.ryokan { border-color: var(--line); color: var(--line); }
+.tag.booked { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.opt-price { text-align: right; white-space: nowrap; }
+.opt-price .tot { display: block; font-family: var(--mincho); font-weight: 600; font-size: 19px; }
+.opt-price .per { font-size: 13px; color: var(--muted); }
+
+.stop-foot { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; margin-top: 12px; font-size: 14px; }
+.linkbtn { background: none; border: 0; padding: 0; font: inherit; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.split { margin-top: 12px; padding: 14px 16px; background: var(--panel); border-radius: 8px; font-size: 14px; }
+.split label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.split-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+select, input[type="number"] { font: inherit; font-size: 15px; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; max-width: 100%; }
+.note { margin-top: 10px; font-size: 14px; color: var(--muted); }
+.booklinks a { margin-right: 14px; }
+
+/* Things to do */
+.extras { margin-left: 56px; }
+@media (max-width: 560px) { .extras, .toolbar { margin-left: 0; } }
+.extras h2 { font-family: var(--mincho); font-weight: 800; font-size: 30px; margin: 0 0 6px; }
+.extras > p { margin: 0 0 16px; color: var(--muted); }
+.extras h3 { font-size: 16px; margin: 28px 0 8px; }
+.row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 12px 0; border-top: 1px solid var(--rule); }
+.row label { cursor: pointer; }
+.row:last-child { border-bottom: 1px solid var(--rule); }
+.row input { margin: 4px 0 0; width: 18px; height: 18px; accent-color: var(--tokyo); }
+.row .when { display: block; font-size: 14px; color: var(--muted); }
+.row .cost { font-family: var(--mincho); font-weight: 600; white-space: nowrap; }
+.field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--rule); }
+.field:last-child { border-bottom: 1px solid var(--rule); }
+.field .when { display: block; font-size: 14px; color: var(--muted); }
+.foodseg { display: flex; flex-wrap: wrap; gap: 8px; }
+.foodseg label { position: relative; flex: 1 1 150px; }
+.foodseg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.foodseg .lbl { display: block; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 8px; font-size: 14px; }
+.foodseg .lbl b { display: block; font-size: 15px; }
+.foodseg input:checked + .lbl { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.foodseg input:focus-visible + .lbl { outline: 3px solid var(--tokyo); outline-offset: 2px; }
+input[type="range"] { width: 160px; accent-color: var(--tokyo); }
+
+/* Summary */
+.summary { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 24px); padding: 24px; border: 1px solid var(--rule); border-radius: 12px; background: var(--paper); }
+@media (max-width: 880px) { .summary { position: static; } }
+.summary h2 { font-size: 16px; margin: 0 0 4px; color: var(--muted); font-weight: 500; }
+.big { font-family: var(--mincho); font-weight: 800; font-size: 48px; line-height: 1.05; margin: 0; border-radius: 6px; transition: background-color .6s; }
+.big.flash { background: var(--flash); transition: none; }
+.range { margin: 6px 0 0; font-size: 15px; }
+.perday { margin: 2px 0 0; font-size: 15px; color: var(--muted); }
+.delta { margin: 12px 0 0; font-size: 14px; padding: 8px 10px; border-radius: 6px; background: var(--panel); }
+dl { margin: 20px 0 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; font-size: 15px; }
+dt { color: var(--muted); }
+dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.stays-list { margin: 16px 0 0; padding: 0; list-style: none; font-size: 14px; }
+.stays-list li { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; }
+.stays-list i { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--c); transform: translateY(1px); }
+.fine { margin: 18px 0 0; font-size: 13px; color: var(--muted); }
+.reset { margin-top: 16px; font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); cursor: pointer; }
+.reset:hover { background: var(--panel); }
+
+.bottombar { display: none; }
+@media (max-width: 880px) {
+  .bottombar { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--paper); }
+  .bottombar .t { font-family: var(--mincho); font-weight: 800; font-size: 24px; }
+  .bottombar small { display: block; font-size: 12px; opacity: .8; }
+  .bottombar button { font: inherit; font-size: 14px; border: 1px solid var(--paper); background: transparent; color: var(--paper); border-radius: 999px; padding: 8px 14px; cursor: pointer; }
+}
+@media (prefers-reduced-motion: reduce) { .big { transition: none; } html { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <h1>Japan, April 2027</h1>
+  <p>Kristin and Nick, 13 nights. Choose where to stay, how to travel between stops and what to do along the way. The total updates as you go, and your choices are saved in this browser.</p>
+</header>
+
+<main class="layout">
+  <div>
+    <div class="toolbar" role="group" aria-label="Show stays">
+      <span>Show</span>
+      <div class="seg" id="filter">
+        <label><input type="radio" name="filter" value="all"><span class="lbl">All stays</span></label>
+        <label><input type="radio" name="filter" value="hotel"><span class="lbl">Hotels</span></label>
+        <label><input type="radio" name="filter" value="ryokan"><span class="lbl">Ryokan</span></label>
+      </div>
+    </div>
+    <div id="route"></div>
+
+    <section class="extras" aria-labelledby="extras-h">
+      <h2 id="extras-h">Things to do</h2>
+      <p>Costs are for both of you.</p>
+      <div id="extras-list"></div>
+      <div class="field">
+        <span><label for="giants">Giants game at Tokyo Dome</label><span class="when">Date set once the 2027 schedule is out. Seats from ¥2,000 each; prices here include stadium food and drinks.</span><span class="links"><a href="https://www.giants.jp/en/" target="_blank" rel="noopener">Giants tickets in English</a></span></span>
+        <select id="giants" aria-label="Giants seats">
+          <option value="skip">Skip it</option>
+          <option value="cheap">Cheap seats, $40</option>
+          <option value="infield">Infield, $120</option>
+          <option value="front">Front row, $220</option>
+        </select>
+      </div>
+
+      <h3>Food and drink</h3>
+      <div class="foodseg" id="food" role="radiogroup" aria-label="Food style">
+        <label><input type="radio" name="food" value="easy"><span class="lbl"><b>Easy</b>$40 per person a day</span></label>
+        <label><input type="radio" name="food" value="balanced"><span class="lbl"><b>Balanced</b>$65 per person a day</span></label>
+        <label><input type="radio" name="food" value="treat"><span class="lbl"><b>Treat ourselves</b>$115 per person a day</span></label>
+      </div>
+      <p class="note">Ryokan stays with dinner and breakfast are taken off the food budget automatically.</p>
+
+      <h3>Getting around and extras</h3>
+      <div class="row"><input type="checkbox" checked disabled id="transit"><span><label for="transit">City trains, subways and buses</label><span class="when">Tokyo and Kyoto on a Suica card in your phone's wallet, about ¥1,000–1,500 each a day</span></span><span class="cost">$130</span></div>
+      <div class="row"><input type="checkbox" id="bags"><span><label for="bags">Ship your suitcases ahead, twice</label><span class="when">From Tokyo to Kyoto on Apr 4, and from Kyoto to your last Tokyo hotel on Apr 9. Your hotel's front desk arranges it.</span></span><span class="cost">$77</span></div>
+      <div class="row"><input type="checkbox" id="bikes"><span><label for="bikes">E-bikes on Naoshima, 2 days</label><span class="when">Rent at Miyanoura Port when you arrive</span></span><span class="cost">$50</span></div>
+      <div class="field">
+        <label for="shopping">Shopping and souvenirs<span class="when" id="shopping-out"></span></label>
+        <input type="range" id="shopping" min="0" max="2000" step="50">
+      </div>
+      <div class="field">
+        <label for="flights">Flights, if you want them in the total<span class="when">Your ZIPAIR tickets, for both of you</span></label>
+        <input type="number" id="flights" min="0" step="10" inputmode="numeric" style="width:110px" aria-describedby="flights-help">
+      </div>
+      <span id="flights-help" class="sr-only">Enter an amount in US dollars</span>
+    </section>
+  </div>
+
+  <aside class="summary" id="summary" aria-labelledby="sum-h">
+    <h2 id="sum-h">Expected total for two</h2>
+    <p class="big" id="total" aria-live="polite"></p>
+    <p class="range" id="range"></p>
+    <p class="perday" id="perday"></p>
+    <p class="delta" id="delta"></p>
+    <dl id="breakdown"></dl>
+    <ul class="stays-list" id="stays-list"></ul>
+    <button class="reset" id="reset" type="button">Reset to our current plan</button>
+    <p class="fine">Estimates in US dollars for sakura season, April 2027, with yen converted at ¥155 to $1. Hotel ranges come from recent published rates and fares from 2026 timetables; check live prices before booking.</p>
+  </aside>
+</main>
+
+<div class="bottombar" aria-hidden="false">
+  <div><small>Expected total</small><span class="t" id="bar-total"></span></div>
+  <button type="button" id="bar-btn">See breakdown</button>
+</div>
+
+<script>
+(function () {
+  function q(t) { return 'https://www.google.com/search?q=' + encodeURIComponent(t); }
+  var STOPS = [
+    { id: 'tokyo1', name: 'Tokyo', jp: '東京', dates: 'Thu Apr 1 to Mon Apr 5', nights: 4, line: 'tokyo', pool: 'tokyo', def: 'trunk', booked: 'trunk' },
+    { id: 'hakone', name: 'Hakone', jp: '箱根', dates: 'Mon Apr 5 to Wed Apr 7', nights: 2, line: 'hakone', pool: 'hakone', def: 'fore' },
+    { id: 'kyoto', name: 'Kyoto', jp: '京都', dates: 'Wed Apr 7 to Sat Apr 10', nights: 3, line: 'kyoto', pool: 'kyoto', def: 'ace' },
+    { id: 'naoshima', name: 'Naoshima', jp: '直島', dates: 'Sat Apr 10 to Mon Apr 12', nights: 2, line: 'naoshima', pool: 'naoshima', def: 'mylodge' },
+    { id: 'tokyo2', name: 'Tokyo, east side', jp: '東京', dates: 'Mon Apr 12 to Wed Apr 14', nights: 2, line: 'tokyo', pool: 'tokyo2', def: 'k5', note: 'Your first stay is on the west side, so this list leads with old and central Tokyo: Nihonbashi, Asakusa, Ginza, Marunouchi and Yanaka.' }
+  ];
+
+  // lo/hi = estimated April price per night for two. meals: 'db' dinner and breakfast, 'b' breakfast.
+  var POOLS = {
+    tokyo: [
+      { id: 'trunk', west: true, name: 'TRUNK(HOTEL) Yoyogi Park', area: 'Tomigaya', blurb: 'Rooftop heated pool and fire pit, Scandinavian-Japanese design, next to Yoyogi Park.', lo: 650, hi: 900, type: 'hotel', url: 'https://www.expedia.com/go/hotel/info/95141392' },
+      { id: 'mustard', west: true, name: 'MUSTARD Hotel Shimokitazawa', area: 'Shimokitazawa', blurb: 'Café lobby, garden and a small bar. The best value with character.', lo: 150, hi: 230, type: 'hotel', url: 'https://www.hotels.com/ho2005725312/mustard-hotel-shimokitazawa-tokyo-japan' },
+      { id: 'alldayplace', west: true, name: 'all day place shibuya', area: 'Shibuya', blurb: 'Compact, stylish rooms and a ground-floor coffee bar.', lo: 220, hi: 320, type: 'hotel', url: 'https://www.hotels.com/ho2322491968/all-day-place-shibuya-tokyo-japan' },
+      { id: 'yuenbettei', west: true, name: 'Yuen Bettei Daita', area: 'Edge of Shimokitazawa', blurb: 'Indoor and outdoor hot spring baths. Some rooms have a hinoki tub or private garden.', lo: 300, hi: 650, type: 'ryokan', onsen: true, url: 'https://www.trip.com/hotels/tokyo-hotel-detail-60905083/onsen-ryokan-yuen-bettei-tokyo-daita' },
+      { id: 'yuenshinjuku', west: true, name: 'Onsen Ryokan Yuen Shinjuku', area: 'Shinjuku', blurb: 'Rooftop hot spring with water brought in daily from Nakaizu.', lo: 280, hi: 450, type: 'ryokan', onsen: true, url: 'https://www.trip.com/hotels/v2/tokyo-hotel-detail-32579406/onsen-ryokan-yuen-shinjuku' },
+      { id: 'sawanoya', name: 'Ryokan Sawanoya', area: 'Yanaka, old Tokyo', blurb: 'Family-run since 1949, with private cypress and clay baths you lock for yourselves.', lo: 110, hi: 200, type: 'ryokan', url: 'https://www.gotokyo.org/en/spot/232/index.html' },
+      { id: 'hoshinoya', name: 'HOSHINOYA Tokyo', area: 'Otemachi', blurb: 'A 17-floor tower of ryokan with a natural hot spring on the top floor.', lo: 1200, hi: 1800, type: 'ryokan', onsen: true, url: 'https://www.expedia.com/Tokyo-Hotels-HOSHINOYA-Tokyo.h16250945.Hotel-Information' },
+      { id: 'excel', west: true, name: 'Kichijoji Excel Hotel Tokyu', area: 'Kichijoji', blurb: 'The nicest hotel in Kichijoji, a short walk to Inokashira Park.', lo: 200, hi: 320, type: 'hotel', url: 'https://www.tokyuhotels.co.jp/en/kichijoji-e/index.html' },
+      { id: 'rei', west: true, name: 'Kichijoji Tokyu REI Hotel', area: 'Kichijoji', blurb: 'Simple and clean, 3 minutes from Inokashira Park.', lo: 140, hi: 220, type: 'hotel', url: 'https://www.tokyuhotelsjapan.com/global/kichijoji-r/' },
+      { id: 'bna', west: true, name: 'BnA Hotel Koenji', area: 'Koenji', blurb: 'Two artist-designed rooms, a bar with locals and a rooftop lounge.', lo: 150, hi: 250, type: 'hotel', url: 'http://www.bna-koenji.com/' },
+      { id: 'mets', west: true, name: 'JR East Hotel Mets Koenji', area: 'Koenji', blurb: 'Practical and connected to the station.', lo: 130, hi: 200, type: 'hotel', url: 'https://www.expedia.com/go/hotel/info/22953231' }
+    ],
+    tokyoEast: [
+      { id: 'k5', name: 'Hotel K5', area: 'Nihonbashi Kabutocho', blurb: 'A 1923 bank building turned design hotel, with a bar, a restaurant and beds veiled in indigo. Faces the old Tokyo Stock Exchange.', lo: 400, hi: 650, type: 'hotel', url: 'https://www.ikyu.com/en-us/00002752/' },
+      { id: 'gatekaminarimon', name: 'The Gate Hotel Kaminarimon', area: 'Asakusa', blurb: 'Across from Senso-ji, with a 13th-floor restaurant and bar looking out at Tokyo Skytree.', lo: 260, hi: 400, type: 'hotel', url: 'https://www.ikyu.com/en-us/00001822/' },
+      { id: 'mujiginza', name: 'MUJI HOTEL GINZA', area: 'Ginza', blurb: 'Calm, minimal rooms above MUJI\u2019s flagship store, in the middle of Ginza.', lo: 320, hi: 450, type: 'hotel', url: 'https://travel.rakuten.com/hkg/en-us/hotel_info_item/cnt_japan/sub_tokyo/cty_chuo_ward/10123456874002/' },
+      { id: 'tokyostation', name: 'The Tokyo Station Hotel', area: 'Marunouchi', blurb: 'Inside the restored red-brick Tokyo Station building. Narita Express leaves from downstairs.', lo: 450, hi: 700, type: 'hotel', url: q('The Tokyo Station Hotel booking') },
+      { id: 'hamacho', name: 'Hamacho Hotel Tokyo Nihonbashi', area: 'Nihonbashi Hamacho', blurb: 'Green, design-led hotel near the Sumida River and the Kiyosumi-Shirakawa coffee district.', lo: 200, hi: 300, type: 'hotel', url: q('Hamacho Hotel Tokyo Nihonbashi booking') },
+      { id: 'nono', name: 'Onyado Nono Asakusa', area: 'Asakusa', blurb: 'Hot spring hotel with tatami touches and natural hot spring baths. Rough price estimate.', lo: 160, hi: 260, type: 'ryokan', onsen: true, url: q('Onyado Nono Asakusa Natural Hot Springs booking') },
+      { id: 'bvlgari', name: 'Bvlgari Hotel Tokyo', area: 'Yaesu, by Tokyo Station', blurb: 'High-floor luxury next to Tokyo Station.', lo: 1600, hi: 2200, type: 'hotel', url: q('Bvlgari Hotel Tokyo booking') }
+    ],
+    hakone: [
+      { id: 'fore', name: 'Hakone Retreat före', area: 'Sengokuhara', blurb: 'Nordic forest retreat with onsen, spa, fire pit and a free café lounge.', lo: 260, hi: 400, type: 'hotel', onsen: true, url: 'https://www.trip.com/hotels/hakone-hotel-detail-6467220/hakone-retreat-fre/' },
+      { id: 'tent', name: 'Onsen Guesthouse HAKONE TENT', area: 'Gora', blurb: 'Lively bar and two private-use hot spring baths. Futons and shared toilets.', lo: 100, hi: 160, type: 'hotel', onsen: true, url: 'https://www.hotels.com/ho576303/onsen-guesthouse-hakone-tent-hostel-hakone-japan' },
+      { id: 'indigo', name: 'Hotel Indigo Hakone Gora', area: 'Gora', blurb: 'Private bath in every room, a firepit and shared hot springs.', lo: 350, hi: 550, type: 'hotel', onsen: true, url: 'https://www.hotels.com/ho1204542720/hotel-indigo-hakone-gora-an-ihg-hotel-hakone-japan/' },
+      { id: 'ajisai', name: 'Ajisai Onsen Ryokan', area: 'Gora', blurb: 'Award-winning private open-air onsen.', lo: 150, hi: 260, type: 'ryokan', onsen: true, url: 'https://www.expedia.com/Hakone-Gora.dx6128316' },
+      { id: 'tenyu', name: 'Hakone Kowakien TEN-YU', area: 'Ninotaira', blurb: 'A private open-air onsen on every terrace, spa treatments and a kaiseki dinner.', lo: 500, hi: 750, type: 'ryokan', onsen: true, meals: 'db', url: 'https://www.hotels.com/ho628570/hakone-kowakien-ten-yu-hakone-japan' },
+      { id: 'matsuzakaya', name: 'Matsuzakaya Honten', area: 'Ashinoyu, on the bus route to Lake Ashi', blurb: 'Founded in 1662. Its own sulfur hot spring, private open-air baths in many rooms plus 5 to reserve, and kaiseki dinner, breakfast and drinks included.', lo: 600, hi: 1000, type: 'ryokan', onsen: true, meals: 'db', url: 'https://kinnotake-resorts.com/matsuzakayahonten/en/' },
+      { id: 'karaku', name: 'Hakone Gora KARAKU', area: 'Gora', blurb: 'Private open-air onsen in all 70 rooms, 3 minutes from Gora Station.', lo: 700, hi: 950, type: 'ryokan', onsen: true, url: 'https://www.japanryokanguide.com/en/ryokans/hakone-gora-karaku' },
+      { id: 'kadan', name: 'Gora Kadan', area: 'Gora', blurb: 'Relais & Châteaux. Full spa with a steam bath and pool, plus a kaiseki dinner.', lo: 1000, hi: 1600, type: 'ryokan', onsen: true, meals: 'db', url: 'https://www.hotels.com/ho16589600/gora-kadan-hakone-japan' },
+      { id: 'fujiya', name: 'The Fujiya Hotel', area: 'Miyanoshita', blurb: 'Japan\u2019s grand old hotel, open since 1878, full of Meiji-era carved wood and period detail.', lo: 380, hi: 550, type: 'hotel', onsen: true, url: q('The Fujiya Hotel Hakone booking') },
+      { id: 'hyatt', name: 'Hyatt Regency Hakone Resort and Spa', area: 'Gora', blurb: 'Contemporary resort with its own hot spring baths, a spa and roomy rooms.', lo: 380, hi: 600, type: 'hotel', onsen: true, url: q('Hyatt Regency Hakone Resort and Spa booking') },
+      { id: 'hanaori', name: 'Hakone Ashinoko Hanaori', area: 'Lake Ashi, at Togendai', blurb: 'Lakeside hot spring hotel by the ropeway station and boat pier.', lo: 300, hi: 450, type: 'hotel', onsen: true, url: q('Hakone Ashinoko Hanaori booking') },
+      { id: 'princeashi', name: 'The Prince Hakone Lake Ashinoko', area: 'Lake Ashi shore', blurb: 'Quiet lakeside hotel on the far shore of Lake Ashi.', lo: 230, hi: 380, type: 'hotel', url: q('The Prince Hakone Lake Ashinoko booking') },
+      { id: 'nanase', name: 'Hakone Nanase', area: 'Miyanoshita', blurb: 'Small hot spring inn that guests praise for its meals.', lo: 270, hi: 400, type: 'ryokan', onsen: true, url: q('Hakone Nanase Miyanoshita booking') },
+      { id: 'fukuzumiro', name: 'Fukuzumiro', area: 'Tonosawa, near Hakone-Yumoto', blurb: 'Historic wooden riverside ryokan from the Meiji era. Rough price estimate.', lo: 400, hi: 650, type: 'ryokan', onsen: true, meals: 'db', url: q('Fukuzumiro Hakone ryokan booking') },
+      { id: 'kinnotake', name: 'Kinnotake Sengokuhara', area: 'Sengokuhara', blurb: 'Adults-only ryokan where every room has its own open-air hot spring bath. Rough price estimate.', lo: 1000, hi: 1600, type: 'ryokan', onsen: true, meals: 'db', url: 'https://kinnotake-resorts.com/' }
+    ],
+    kyoto: [
+      { id: 'ace', name: 'Ace Hotel Kyoto', area: 'Karasuma-Oike', blurb: 'Kengo Kuma design, a rooftop bar and Stumptown Coffee in the lobby.', lo: 550, hi: 850, type: 'hotel', url: 'https://www.acehotel.com/kyoto/' },
+      { id: 'anteroom', name: 'Hotel Anteroom Kyoto', area: 'South of Kyoto Station', blurb: 'Art hotel with a gallery and artist-designed rooms.', lo: 120, hi: 220, type: 'hotel', url: 'https://hotel-anteroom.com/en/' },
+      { id: 'goodnature', name: 'GOOD NATURE HOTEL KYOTO', area: 'Kawaramachi', blurb: 'Green-wall lobby, natural materials and free morning yoga.', lo: 400, hi: 600, type: 'hotel', url: 'https://www.travelocity.com/Kyoto-Hotels-Good-Nature-Hotel-Kyoto.h37234951.Hotel-Reviews' },
+      { id: 'tougetsu', name: 'Tougetsu Ryokan', area: 'Nakagyo, near Nishiki Market', blurb: 'A simple traditional inn, a short walk from Ace and the Manga Museum.', lo: 180, hi: 280, type: 'ryokan', meals: 'b', url: 'https://www.kayak.com/Kyoto-Hotels-Tougetsu.666906.ksp' },
+      { id: 'yoshida', name: 'Yoshida-Sanso', area: 'Sakyo, near the Philosopher\u2019s Path', blurb: 'Five-room former imperial-family villa with a garden and kaiseki meals. Adults only.', lo: 400, hi: 550, type: 'ryokan', meals: 'db', url: 'https://www.hotels.com/ho311134/' },
+      { id: 'togetsutei', name: 'Togetsutei', area: 'Arashiyama, by Togetsukyo Bridge', blurb: 'Hot spring ryokan from 1897. Some rooms have a private open-air or hinoki bath.', lo: 400, hi: 700, type: 'ryokan', onsen: true, meals: 'db', url: 'https://www.expedia.com/Kyoto-Hotels-Togetsutei.h3837237.Hotel-Information' },
+      { id: 'hiiragiya', name: 'Hiiragiya', area: 'Downtown, near Nishiki Market', blurb: 'Founded in 1818. Kaiseki dinner, a Japanese garden and a steam room.', lo: 1000, hi: 1600, type: 'ryokan', meals: 'db', url: 'https://www.expedia.com/Kyoto-Hotels-Hiiragiya.h5363078.Hotel-Information' },
+      { id: 'tawaraya', name: 'Tawaraya', area: 'Downtown', blurb: 'Often called Japan\u2019s finest ryokan, with 18 rooms.', lo: 1000, hi: 1900, type: 'ryokan', meals: 'db', url: 'https://joinpearl.co/blogs/visiting-tawaraya-kyoto-what-to-know-before-you-go-in-2026', how: 'No online booking: go through a Japan travel specialist or a luxury hotel concierge, months ahead.', linkLabel: 'How to book' },
+      { id: 'celestine', name: 'Hotel The Celestine Kyoto Gion', area: 'Gion, by Yasaka Shrine', blurb: 'Garden hotel steps from Yasaka Shrine, with a shared bath and a relaxing bar.', lo: 380, hi: 600, type: 'hotel', url: 'https://expedia.com/Gion-hotels-Hotel-The-Celestine-Kyoto-Gion.h17857390.Hotel-information' },
+      { id: 'nohga', name: 'Nohga Hotel Kiyomizu Kyoto', area: 'Higashiyama, near Kiyomizu-dera', blurb: 'Design hotel in the old temple district, walkable to Kiyomizu and Gion.', lo: 180, hi: 300, type: 'hotel', url: q('Nohga Hotel Kiyomizu Kyoto booking') },
+      { id: 'parkhyatt', name: 'Park Hyatt Kyoto', area: 'Higashiyama slope, by Yasaka Pagoda', blurb: 'Glass-and-wood luxury hotel above the old streets, between Kiyomizu-dera and Gion.', lo: 1000, hi: 1600, type: 'hotel', url: q('Park Hyatt Kyoto booking') },
+      { id: 'hatanaka', name: 'Ryokan Gion Hatanaka', area: 'Gion', blurb: 'One of the few inns that still hosts maiko and geiko evenings for guests.', lo: 550, hi: 900, type: 'ryokan', meals: 'db', url: q('Gion Hatanaka ryokan booking') },
+      { id: 'motonago', name: 'Motonago Ryokan', area: 'Higashiyama, near Kodai-ji', blurb: 'Relaxed 11-room ryokan with a 13-part regional dinner.', lo: 350, hi: 550, type: 'ryokan', meals: 'db', url: q('Motonago ryokan Kyoto booking') },
+      { id: 'sowaka', name: 'Sowaka', area: 'Gion', blurb: 'Stylish ryokan-hotel with garden-view rooms and a highly rated restaurant.', lo: 600, hi: 1000, type: 'ryokan', url: q('Sowaka Kyoto booking') },
+      { id: 'suiran', name: 'Suiran, a Luxury Collection Hotel', area: 'Arashiyama, on the river', blurb: 'Riverside luxury in Arashiyama, near the bamboo grove.', lo: 900, hi: 1400, type: 'hotel', url: q('Suiran Luxury Collection Kyoto booking') },
+      { id: 'muni', name: 'MUNI KYOTO', area: 'Arashiyama, on the river', blurb: 'Small luxury hotel on the riverbank in Arashiyama.', lo: 700, hi: 1000, type: 'hotel', url: q('MUNI KYOTO booking') },
+      { id: 'hoshinoyakyoto', name: 'HOSHINOYA Kyoto', area: 'Arashiyama, upriver', blurb: 'Riverside ryokan-style retreat reached by the inn\u2019s own boat. Rough price estimate.', lo: 1200, hi: 1800, type: 'ryokan', url: 'https://www.za.kayak.com/Kyoto-Hotels-Hoshinoya-Kyoto.337889.ksp' },
+      { id: 'homm', name: 'Homm Stay Nagi Arashiyama', area: 'Arashiyama', blurb: 'Modern, good-value base in Arashiyama.', lo: 150, hi: 250, type: 'hotel', url: q('Homm Stay Nagi Arashiyama booking') },
+      { id: 'granvia', name: 'Hotel Granvia Kyoto', area: 'Inside Kyoto Station', blurb: 'The easiest base for an early Shinkansen to Naoshima.', lo: 250, hi: 400, type: 'hotel', url: q('Hotel Granvia Kyoto booking') },
+      { id: 'aman', name: 'Aman Kyoto', area: 'North Kyoto, near Kinkaku-ji', blurb: 'Secluded forest-garden retreat. Rough price estimate.', lo: 1600, hi: 2500, type: 'hotel', url: q('Aman Kyoto booking') }
+    ],
+    naoshima: [
+      { id: 'mylodge', name: 'MY LODGE Naoshima', area: 'Naoshima', blurb: 'Modern lodge with ocean views, a restaurant and a terrace.', lo: 180, hi: 260, type: 'hotel', url: 'https://www.travelocity.com/Benesse-House-Naoshima.d3000757860.Vacation-Attraction' },
+      { id: 'uno', name: 'UNO HOTEL', area: 'Uno Port, on the mainland', blurb: 'Design hotel with a coffee shop and a communal living room. Ferry over each day.', lo: 230, hi: 320, type: 'hotel', url: 'https://www.travelocity.com/Benesse-House-Naoshima.d3000757860.Vacation-Attraction' },
+      { id: 'tsutsujiso', name: 'Naoshima Tsutsujiso Lodge', area: 'Near Benesse House', blurb: 'Simple lodge and trailer rooms by the sea.', lo: 100, hi: 180, type: 'hotel', url: 'https://www.expedia.com/Naoshima-Hotels-Naoshima-Tsutsujiso-Lodge.h117098440.Hotel-Information' },
+      { id: 'bh_museum', name: 'Benesse House Museum', area: 'Inside the art museum', blurb: 'Rooms inside Tadao Ando\u2019s museum, decorated with work by the artists on show. Guests can walk the galleries after closing.', lo: 380, hi: 550, type: 'hotel', badge: 'Inside the museum', url: 'https://benesse-artsite.jp/en/', linkLabel: 'Book Benesse House on the Benesse Art Site' },
+      { id: 'bh_oval', name: 'Benesse House Oval', area: 'Hilltop above the museum', blurb: 'The most exclusive wing: six rooms reached by a private funicular, with panoramic Inland Sea views and after-hours museum access.', lo: 550, hi: 950, type: 'hotel', badge: 'Museum access after hours', url: 'https://benesse-artsite.jp/en/', linkLabel: 'Book Benesse House on the Benesse Art Site' },
+      { id: 'bh_park', name: 'Benesse House Park', area: 'By the sculpture lawn', blurb: 'The largest wing, facing the art-filled lawn and the sea, a short walk to the museum. Free museum entry for guests.', lo: 320, hi: 480, type: 'hotel', url: 'https://benesse-artsite.jp/en/', linkLabel: 'Book Benesse House on the Benesse Art Site' },
+      { id: 'bh_beach', name: 'Benesse House Beach', area: 'On the shoreline', blurb: 'Eight suite-style rooms steps from the water. Free museum entry for guests.', lo: 600, hi: 850, type: 'hotel', url: 'https://benesse-artsite.jp/en/', linkLabel: 'Book Benesse House on the Benesse Art Site' },
+      { id: 'minshuku', name: 'Minshuku in Honmura', area: 'Honmura village', blurb: 'Family-run tatami guesthouse, usually with shared bathrooms.', lo: 150, hi: 280, type: 'ryokan', meals: 'db', url: 'https://japanuncharted.com/kagawa/area-stay/naoshima-best-areas-to-stay' },
+      { id: 'roka', name: 'Naoshima Ryokan Roka', area: 'Edge of Honmura', blurb: '11 suites, each with its own open-air bath, plus contemporary art and local seafood.', lo: 750, hi: 1100, type: 'ryokan', meals: 'db', url: 'https://roka.voyage/en/' }
+    ]
+  };
+
+  POOLS.tokyo2 = POOLS.tokyoEast.concat(POOLS.tokyo.filter(function (o) { return !o.west; }), POOLS.tokyo.filter(function (o) { return o.west; }));
+  var EXTRAS = [
+    { id: 'ghibli', name: 'Ghibli Museum', when: 'Fri Apr 2, Kichijoji. Tickets go on sale March 10 at 10am Japan time.', cost: 15, links: [['Buy tickets', 'https://ghibli-museum.jp/en/ticket-information/']] },
+    { id: 'sky', name: 'SHIBUYA SKY at sunset', when: 'Sun Apr 4. Evening slots are \u00a53,400 each online. The official site often rejects foreign cards; Klook sells the same slots.', cost: 45, links: [['Official tickets', 'https://www.shibuya-scramble-square.com/sky/'], ['Klook', q('Klook SHIBUYA SKY ticket')]] },
+    { id: 'live', name: 'Live music in Shimokitazawa', when: 'Sat Apr 3, two stops from TRUNK. Most live houses sell tickets at the door.', cost: 45, links: [['See what\u2019s on', q('Shimokitazawa live house schedule April 2027')]] },
+    { id: 'hakonemuseums', name: 'Hakone Open-Air Museum and Pola Museum', when: 'Apr 5 to 7. Pay at the door; the Freepass gets small discounts.', cost: 55, links: [['Open-Air Museum', 'https://www.hakone-oam.or.jp/en/'], ['Pola Museum', 'https://www.polamuseum.or.jp/en/']] },
+    { id: 'kyotosights', name: 'Kyoto temples, gardens and spring illuminations', when: 'Apr 8 and 9. Mostly pay at the gate; Nijo Castle sells timed tickets online.', cost: 90, links: [['Nijo Castle', 'https://nijo-jocastle.city.kyoto.lg.jp/?lang=en'], ['Spring illuminations', q('Kyoto spring illumination 2027 cherry blossom')]] },
+    { id: 'naoshimaart', name: 'Naoshima museums, including Chichu', when: 'Apr 10 and 11. Chichu and Minamidera need timed tickets.', cost: 130, links: [['Benesse Art Site tickets', 'https://benesse-artsite.jp/en/']] },
+    { id: 'omakase', name: 'Omakase sushi farewell dinner', when: 'Tue Apr 13, in Ginza. Book 1 to 2 months ahead.', cost: 400, links: [['Find a counter', 'https://omakase.in/en']] }
+  ];
+  var GIANTS_LINK = 'https://www.giants.jp/en/';
+
+  // Costs are for both of you, converted at \u00a5155 to $1. approx: true marks rough figures.
+  var LEGS = [
+    { id: 'airport', title: 'Narita Airport and Tokyo', when: 'Arriving Thu Apr 1 and leaving Wed Apr 14. Prices cover both trips.', before: 'tokyo1', def: 'nex', options: [
+      { id: 'nex', name: 'Narita Express round-trip ticket', d: 'To Shibuya on arrival, back from Tokyo Station on departure (about 1 hour). \u00a55,200 each for visitors, valid 14 days.', cost: 67, url: 'https://www.jreast.co.jp/en/multi/pass/nex.html' },
+      { id: 'limo', name: 'Airport Limousine Bus', d: 'No train changes, with stops at stations and big hotels. About \u00a53,000 each way per person; traffic can add time.', cost: 77, url: 'https://www.limousinebus.co.jp/en/' },
+      { id: 'lowcost', name: 'Low-cost bus to Tokyo Station, then train', d: 'About \u00a51,500 each way per person, plus one train change.', cost: 45, url: 'https://www.japan-guide.com/e/e2027.html' },
+      { id: 'car', name: 'Private car', d: 'Door to door with your bags. Roughly \u00a525,000\u201330,000 per car each way.', cost: 355, approx: true, url: q('Narita airport private transfer Shibuya') }
+    ] },
+    { id: 'tohakone', title: 'Tokyo to Hakone', when: 'Mon Apr 5', before: 'hakone', def: 'romance', options: [
+      { id: 'romance', name: 'Romancecar + 2-day Hakone Freepass', d: 'Shinjuku to Hakone-Yumoto in about 80 minutes. The pass covers all Hakone buses, the ropeway and the lake boat. \u00a57,100 pass + \u00a51,200 seat each.', cost: 107, url: 'https://hakonetrip.odakyu-global.com/passes/hakone-freepass/' },
+      { id: 'shink', name: 'Shinkansen to Odawara + Hakone Freepass', d: 'Faster from Tokyo or Shinagawa Station, then the Hakone-area pass (\u00a56,000 each).', cost: 126, approx: true, url: 'https://smart-ex.jp/en/' },
+      { id: 'car', name: 'Private driver to your hotel', d: 'About 2 hours door to door, roughly \u00a540,000\u201350,000 per car. Includes a Hakone-area pass for the loop.', cost: 367, approx: true, url: q('Tokyo to Hakone private driver') }
+    ] },
+    { id: 'tokyoto', title: 'Hakone to Kyoto', when: 'Wed Apr 7. Bus to Odawara is covered by the Freepass.', before: 'kyoto', def: 'hikari', options: [
+      { id: 'hikari', name: 'Hikari Shinkansen, reserved seats', d: 'Odawara to Kyoto in about 2 hours. \u00a512,100 each. Sit in seat E for Mt. Fuji.', cost: 156, url: 'https://smart-ex.jp/en/' },
+      { id: 'green', name: 'Hikari Shinkansen, Green Car', d: 'First-class seats, \u00a516,970 each.', cost: 219, url: 'https://smart-ex.jp/en/' }
+    ] },
+    { id: 'tonaoshima', title: 'Kyoto to Naoshima', when: 'Sat Apr 10', before: 'naoshima', def: 'uno', options: [
+      { id: 'uno', name: 'Shinkansen, Uno Line and ferry', d: 'Nozomi to Okayama (about 1 hour, about \u00a57,700), JR to Uno (\u00a5590), then a 20-minute ferry (\u00a5370).', cost: 112, url: 'https://benesse-artsite.jp/en/access/' },
+      { id: 'unogreen', name: 'Same route, Green Car to Okayama', d: 'About \u00a511,350 each for the Shinkansen.', cost: 159, url: 'https://smart-ex.jp/en/' },
+      { id: 'taka', name: 'Via Takamatsu', d: 'Marine Liner over the Seto Ohashi Bridge (\u00a51,550), then a 50-minute ferry (\u00a5680). Slower, more scenic.', cost: 128, url: 'https://benesse-artsite.jp/en/access/' }
+    ] },
+    { id: 'totokyo', title: 'Naoshima to Tokyo', when: 'Mon Apr 12. About 5 hours door to door.', before: 'tokyo2', def: 'nozomi', options: [
+      { id: 'nozomi', name: 'Ferry, Uno Line and Nozomi', d: 'Nozomi Okayama to Tokyo, \u00a517,770 each.', cost: 242, url: 'https://smart-ex.jp/en/' },
+      { id: 'nozomigreen', name: 'Same route, Green Car', d: 'Nozomi Green Car, \u00a523,840 each.', cost: 320, url: 'https://smart-ex.jp/en/' }
+    ] }
+  ];
+  var TRANSIT = 130, BAGS = 77, BIKES = 50;
+  var GIANTS = { skip: 0, cheap: 40, infield: 120, front: 220 };
+  var FOOD = { easy: 40, balanced: 65, treat: 115 };
+  var MEAL_CREDIT = { db: 80, b: 25 };
+  var DAYS = 13, FIXED_EXTRAS = 250;
+  var VISIBLE = 6;
+  var KEY = 'japan-2027-planner-v1';
+
+  function legDefaults() { var l = {}; LEGS.forEach(function (g) { l[g.id] = g.def; }); return l; }
+  function legOpt(g, id) { for (var i = 0; i < g.options.length; i++) if (g.options[i].id === id) return g.options[i]; return g.options[0]; }
+  function defaults() {
+    var stays = {};
+    STOPS.forEach(function (s) { stays[s.id] = { a: s.def, split: false, b: null, bn: 1 }; });
+    return {
+      stays: stays, filter: 'all', food: 'balanced',
+      extras: { ghibli: true, sky: true, live: true, hakonemuseums: true, kyotosights: true, naoshimaart: true, omakase: false },
+      giants: 'infield', shopping: 200, flights: 0, expanded: {},
+      legs: legDefaults(), bags: true, bikes: true, migratedEast: true
+    };
+  }
+
+  var state = load();
+
+  function load() {
+    var d = defaults();
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (!raw) return d;
+      var s = JSON.parse(raw);
+      if (!s || typeof s !== 'object') return d;
+      STOPS.forEach(function (st) {
+        var v = s.stays && s.stays[st.id];
+        if (v && find(st.pool, v.a)) {
+          d.stays[st.id] = { a: v.a, split: !!v.split && st.nights > 1, b: find(st.pool, v.b) ? v.b : null, bn: Math.min(Math.max(parseInt(v.bn, 10) || 1, 1), st.nights - 1 || 1) };
+        }
+      });
+      ['filter', 'food', 'giants'].forEach(function (k) { if (typeof s[k] === 'string') d[k] = s[k]; });
+      if (!FOOD[d.food]) d.food = 'balanced';
+      if (!(d.giants in GIANTS)) d.giants = 'infield';
+      if (['all', 'hotel', 'ryokan'].indexOf(d.filter) < 0) d.filter = 'all';
+      if (s.extras) EXTRAS.forEach(function (e) { if (typeof s.extras[e.id] === 'boolean') d.extras[e.id] = s.extras[e.id]; });
+      if (s.legs) LEGS.forEach(function (g) { var v = s.legs[g.id]; if (v && g.options.some(function (o) { return o.id === v; })) d.legs[g.id] = v; });
+      if (typeof s.bags === 'boolean') d.bags = s.bags;
+      if (!s.migratedEast) { var t2 = find('tokyo2', d.stays.tokyo2.a); if (!t2 || t2.west) d.stays.tokyo2 = { a: 'k5', split: false, b: null, bn: 1 }; }
+      if (typeof s.bikes === 'boolean') d.bikes = s.bikes;
+      if (typeof s.shopping === 'number') d.shopping = s.shopping;
+      if (typeof s.flights === 'number' && s.flights >= 0) d.flights = s.flights;
+      if (s.expanded) d.expanded = s.expanded;
+    } catch (e) { /* storage unavailable or malformed: use the default plan */ }
+    return d;
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ignore */ } }
+
+  function find(pool, id) { if (!id) return null; var list = POOLS[pool]; for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; }
+  function money(n) { return '$' + Math.round(n).toLocaleString('en-US'); }
+  function mid(o) { return (o.lo + o.hi) / 2; }
+  function bookLink(o, fallback) {
+    if (!o.url) return '';
+    var isSearch = o.url.indexOf('google.com/search') > -1;
+    var label = o.linkLabel || (isSearch ? 'Search to book' : (fallback || 'Book'));
+    return '<span class="links"><a href="' + esc(o.url) + '" target="_blank" rel="noopener">' + esc(label) + ' \u2197</a>' +
+      (o.how ? '<span class="d"> ' + esc(o.how) + '</span>' : '') + '</span>';
+  }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+
+  function stopParts(st, s) {
+    var a = find(st.pool, s.a);
+    var b = s.split ? find(st.pool, s.b) : null;
+    if (b && b.id === a.id) b = null;
+    var bn = b ? Math.min(s.bn, st.nights - 1) : 0;
+    return [{ o: a, n: st.nights - bn }].concat(b ? [{ o: b, n: bn }] : []);
+  }
+
+  function compute(s) {
+    var lo = 0, hi = 0, credit = 0, stays = [];
+    STOPS.forEach(function (st) {
+      stopParts(st, s.stays[st.id]).forEach(function (p) {
+        lo += p.o.lo * p.n; hi += p.o.hi * p.n;
+        if (p.o.meals) credit += MEAL_CREDIT[p.o.meals] * p.n;
+        stays.push({ stop: st, o: p.o, n: p.n });
+      });
+    });
+    var food = Math.max(0, FOOD[s.food] * 2 * DAYS - credit);
+    var legsCost = 0; LEGS.forEach(function (g) { legsCost += legOpt(g, s.legs[g.id]).cost; });
+    var transport = legsCost + TRANSIT + (s.bags ? BAGS : 0) + (s.bikes ? BIKES : 0);
+    var activities = GIANTS[s.giants] || 0;
+    EXTRAS.forEach(function (e) { if (s.extras[e.id]) activities += e.cost; });
+    var other = FIXED_EXTRAS + (s.shopping || 0);
+    var flights = s.flights || 0;
+    var rest = food + transport + activities + other + flights;
+    return {
+      staysLo: lo, staysHi: hi, staysMid: (lo + hi) / 2, credit: credit, food: food, transport: transport,
+      activities: activities, other: other, flights: flights,
+      lo: lo + rest, hi: hi + rest, mid: (lo + hi) / 2 + rest, stays: stays
+    };
+  }
+  var BASELINE = compute(defaults()).mid;
+
+  /* Rendering */
+  function tagsFor(st, o) {
+    var t = [];
+    if (st.booked === o.id) t.push('<span class="tag booked">Booked</span>');
+    if (o.badge) t.push('<span class="tag ryokan">' + esc(o.badge) + '</span>');
+    if (st.id === 'tokyo2' && o.west) t.push('<span class="tag">West side, near TRUNK</span>');
+    if (o.type === 'ryokan') t.push('<span class="tag ryokan">Ryokan</span>');
+    if (o.onsen) t.push('<span class="tag">Hot spring</span>');
+    if (o.meals === 'db') t.push('<span class="tag">Dinner and breakfast</span>');
+    if (o.meals === 'b') t.push('<span class="tag">Breakfast</span>');
+    return t.join('');
+  }
+
+  function orderedPool(st) {
+    var list = POOLS[st.pool].slice();
+    list.sort(function (x, y) { return (y.id === st.def) - (x.id === st.def); });
+    return list;
+  }
+
+  function renderStop(st) {
+    var s = state.stays[st.id];
+    var all = orderedPool(st);
+    var filtered = all.filter(function (o) { return state.filter === 'all' || o.type === state.filter || o.id === s.a; });
+    var expanded = !!state.expanded[st.id];
+    var shown = expanded ? filtered : filtered.filter(function (o, i) { return i < VISIBLE || o.id === s.a; });
+    var hiddenCount = filtered.length - shown.length;
+    var parts = stopParts(st, s);
+    var sub = 0; parts.forEach(function (p) { sub += mid(p.o) * p.n; });
+    var aNights = parts[0].n;
+
+    var h = '';
+    h += '<div class="rail" aria-hidden="true"><span class="dot"></span></div>';
+    h += '<div class="stop-body">';
+    h += '<div class="stop-head"><h2>' + esc(st.name) + '<span class="jp" lang="ja">' + st.jp + '</span></h2><span class="stop-sub">' + money(sub) + '</span></div>';
+    h += '<p class="dates">' + esc(st.dates) + ', ' + st.nights + ' nights</p>';
+    if (st.note) h += '<p class="note" style="margin:-8px 0 14px">' + esc(st.note) + '</p>';
+    h += '<fieldset><legend class="sr-only">Where to stay in ' + esc(st.name) + '</legend><div class="opts">';
+    shown.forEach(function (o) {
+      var sel = o.id === s.a;
+      var oid = 'opt-' + st.id + '-' + o.id;
+      h += '<label class="opt' + (sel ? ' is-selected' : '') + '" for="' + oid + '">';
+      h += '<input type="radio" id="' + oid + '" name="stay-' + st.id + '" value="' + o.id + '"' + (sel ? ' checked' : '') + '>';
+      h += '<span><span class="opt-name">' + esc(o.name) + '</span><span class="opt-area">' + esc(o.area) + '</span><span class="opt-blurb">' + esc(o.blurb) + '</span><span class="tags">' + tagsFor(st, o) + '</span>' + bookLink(o) + '</span>';
+      h += '<span class="opt-price"><span class="tot">' + money(mid(o) * (sel ? aNights : st.nights)) + '</span><span class="per">' + money(o.lo) + '\u2013' + money(o.hi).slice(1) + ' a night</span></span>';
+      h += '</label>';
+    });
+    h += '</div></fieldset>';
+
+    h += '<div class="stop-foot">';
+    if (hiddenCount > 0 || expanded) {
+      h += '<button type="button" class="linkbtn" data-act="expand" data-stop="' + st.id + '" id="exp-' + st.id + '">' + (expanded ? 'Show fewer' : 'Show ' + hiddenCount + ' more') + '</button>';
+    }
+    h += '</div>';
+
+    if (st.booked && s.a !== st.booked) {
+      var bk = find(st.pool, st.booked);
+      h += '<p class="note">' + esc(bk.name) + ' is already booked for these dates. Cancel it before booking somewhere else.</p>';
+    }
+
+    if (st.nights > 1) {
+      h += '<div class="split"><label for="split-' + st.id + '"><input type="checkbox" id="split-' + st.id + '" data-act="split" data-stop="' + st.id + '"' + (s.split ? ' checked' : '') + '> Split this stop between two places</label>';
+      if (s.split) {
+        var opts = all.filter(function (o) { return o.id !== s.a; });
+        var bSel = s.b && s.b !== s.a ? s.b : '';
+        h += '<div class="split-row"><label for="splitb-' + st.id + '">Last</label>';
+        h += '<select id="splitn-' + st.id + '" data-act="splitn" data-stop="' + st.id + '" aria-label="Nights at the second place">';
+        for (var n = 1; n < st.nights; n++) h += '<option value="' + n + '"' + (n === s.bn ? ' selected' : '') + '>' + n + (n === 1 ? ' night' : ' nights') + '</option>';
+        h += '</select><span>at</span>';
+        h += '<select id="splitb-' + st.id + '" data-act="splitb" data-stop="' + st.id + '"><option value="">Choose a place</option>';
+        opts.forEach(function (o) { h += '<option value="' + o.id + '"' + (o.id === bSel ? ' selected' : '') + '>' + esc(o.name) + (o.type === 'ryokan' ? ' (ryokan)' : '') + ', ' + money(mid(o)) + ' a night</option>'; });
+        h += '</select></div>';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+    return h;
+  }
+
+  function renderLeg(g) {
+    var sel = state.legs[g.id];
+    var cur = legOpt(g, sel);
+    var h = '<div class="rail" aria-hidden="true"><span class="train">\ud83d\ude86</span></div><div class="leg-body">';
+    h += '<div class="leg-head"><h3 id="lh-' + g.id + '">' + esc(g.title) + '</h3><span class="cost">' + money(cur.cost) + '</span></div>';
+    h += '<p class="leg-when">' + esc(g.when) + '</p>';
+    h += '<fieldset><legend class="sr-only">How to travel: ' + esc(g.title) + '</legend><div class="lopts">';
+    g.options.forEach(function (o) {
+      var oid = 'leg-' + g.id + '-' + o.id, on = o.id === cur.id;
+      h += '<label class="lopt' + (on ? ' is-selected' : '') + '" for="' + oid + '"><input type="radio" id="' + oid + '" name="leg-' + g.id + '" value="' + o.id + '"' + (on ? ' checked' : '') + '>';
+      h += '<span><b>' + esc(o.name) + '</b><span class="d">' + esc(o.d) + '</span>' + bookLink(o, 'Book tickets') + '</span><span class="c">' + (o.approx ? 'about ' : '') + money(o.cost) + '</span></label>';
+    });
+    h += '</div></fieldset>';
+    h += '</div>';
+    return h;
+  }
+
+  var route = document.getElementById('route');
+  function renderRoute() {
+    var focusId = document.activeElement && document.activeElement.id;
+    route.innerHTML = STOPS.map(function (st) {
+      var leg = LEGS.filter(function (g) { return g.before === st.id; })[0];
+      return (leg ? '<section class="leg" aria-labelledby="lh-' + leg.id + '">' + renderLeg(leg) + '</section>' : '') +
+        '<article class="stop" style="--line: var(--' + st.line + ')" aria-labelledby="h-' + st.id + '">' + renderStop(st) + '</article>';
+    }).join('');
+    STOPS.forEach(function (st) { var h2 = route.querySelector('[aria-labelledby="h-' + st.id + '"] h2'); if (h2) h2.id = 'h-' + st.id; });
+    if (focusId) { var el = document.getElementById(focusId); if (el) el.focus({ preventScroll: true }); }
+  }
+
+  function renderExtras() {
+    document.getElementById('extras-list').innerHTML = EXTRAS.map(function (e) {
+      return '<div class="row"><input type="checkbox" id="x-' + e.id + '" data-extra="' + e.id + '"' + (state.extras[e.id] ? ' checked' : '') + '><span><label for="x-' + e.id + '">' + esc(e.name) + '</label><span class="when">' + esc(e.when) + '</span><span class="links">' +
+        e.links.map(function (l) { return '<a href="' + esc(l[1]) + '" target="_blank" rel="noopener">' + esc(l[0]) + '</a>'; }).join('') + '</span></span><span class="cost">' + money(e.cost) + '</span></div>';
+    }).join('');
+  }
+
+  var lastMid = null;
+  function renderSummary() {
+    var c = compute(state);
+    var totalEl = document.getElementById('total');
+    totalEl.textContent = money(c.mid);
+    document.getElementById('bar-total').textContent = money(c.mid);
+    document.getElementById('range').textContent = 'Likely between ' + money(c.lo) + ' and ' + money(c.hi);
+    document.getElementById('perday').textContent = 'About ' + money(c.mid / DAYS) + ' a day';
+    var d = Math.round((c.mid - BASELINE) / 10) * 10;
+    document.getElementById('delta').textContent = d === 0 ? 'Same as our current plan' : (d > 0 ? money(d) + ' more than our current plan' : money(-d) + ' less than our current plan');
+    var rows = [
+      ['Places to stay', c.staysMid],
+      ['Food and drink' + (c.credit ? ' (after ryokan meals)' : ''), c.food],
+      ['Getting around (trains, ferries, bags)', c.transport],
+      ['Things to do', c.activities],
+      ['Data, taxes and shopping', c.other]
+    ];
+    if (c.flights) rows.push(['Flights', c.flights]);
+    document.getElementById('breakdown').innerHTML = rows.map(function (r) { return '<dt>' + esc(r[0]) + '</dt><dd>' + money(r[1]) + '</dd>'; }).join('');
+    document.getElementById('stays-list').innerHTML = c.stays.map(function (x) {
+      return '<li style="--c: var(--' + x.stop.line + ')"><i></i><span>' + esc(x.o.name) + ', ' + x.n + (x.n === 1 ? ' night' : ' nights') + '</span></li>';
+    }).join('');
+    if (lastMid !== null && Math.round(lastMid) !== Math.round(c.mid) && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      totalEl.classList.add('flash');
+      requestAnimationFrame(function () { requestAnimationFrame(function () { totalEl.classList.remove('flash'); }); });
+    }
+    lastMid = c.mid;
+    document.getElementById('shopping-out').textContent = money(state.shopping) + ' for the trip';
+  }
+
+  function syncControls() {
+    document.querySelectorAll('input[name="filter"]').forEach(function (i) { i.checked = i.value === state.filter; });
+    document.querySelectorAll('input[name="food"]').forEach(function (i) { i.checked = i.value === state.food; });
+    document.getElementById('giants').value = state.giants;
+    document.getElementById('bags').checked = state.bags;
+    document.getElementById('bikes').checked = state.bikes;
+    document.getElementById('shopping').value = state.shopping;
+    document.getElementById('flights').value = state.flights || '';
+  }
+
+  function update(full) { if (full) renderRoute(); renderSummary(); save(); }
+
+  /* Events */
+  route.addEventListener('change', function (e) {
+    var t = e.target, stopId = t.getAttribute('data-stop');
+    if (t.type === 'radio' && t.name.indexOf('leg-') === 0) {
+      state.legs[t.name.slice(4)] = t.value; update(true); return;
+    }
+    if (t.type === 'radio' && t.name.indexOf('stay-') === 0) {
+      var id = t.name.slice(5), s = state.stays[id];
+      s.a = t.value;
+      if (s.b === s.a) s.b = null;
+      update(true);
+    } else if (t.getAttribute('data-act') === 'split') {
+      state.stays[stopId].split = t.checked; update(true);
+    } else if (t.getAttribute('data-act') === 'splitb') {
+      state.stays[stopId].b = t.value || null; update(true);
+    } else if (t.getAttribute('data-act') === 'splitn') {
+      state.stays[stopId].bn = parseInt(t.value, 10) || 1; update(true);
+    }
+  });
+  route.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-act="expand"]');
+    if (!b) return;
+    var id = b.getAttribute('data-stop');
+    state.expanded[id] = !state.expanded[id];
+    update(true);
+  });
+  document.getElementById('filter').addEventListener('change', function (e) { state.filter = e.target.value; update(true); });
+  document.getElementById('extras-list').addEventListener('change', function (e) {
+    var id = e.target.getAttribute('data-extra'); if (!id) return;
+    state.extras[id] = e.target.checked; update(false);
+  });
+  document.getElementById('food').addEventListener('change', function (e) { state.food = e.target.value; update(false); });
+  document.getElementById('giants').addEventListener('change', function (e) { state.giants = e.target.value; update(false); });
+  document.getElementById('bags').addEventListener('change', function (e) { state.bags = e.target.checked; update(false); });
+  document.getElementById('bikes').addEventListener('change', function (e) { state.bikes = e.target.checked; update(false); });
+  document.getElementById('shopping').addEventListener('input', function (e) { state.shopping = parseInt(e.target.value, 10) || 0; update(false); });
+  document.getElementById('flights').addEventListener('input', function (e) { var v = parseFloat(e.target.value); state.flights = isFinite(v) && v > 0 ? v : 0; update(false); });
+  document.getElementById('reset').addEventListener('click', function () {
+    state = defaults(); syncControls(); renderExtras(); update(true);
+  });
+  document.getElementById('bar-btn').addEventListener('click', function () {
+    document.getElementById('summary').scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  });
+
+  syncControls();
+  renderExtras();
+  renderRoute();
+  renderSummary();
+})();
+</script>
+</body>
+</html>

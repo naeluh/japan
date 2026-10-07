@@ -2,13 +2,13 @@
 
 Kristin and Nick's shared plan for Japan, April 1–14, 2027, running as a small web app on Vercel. It keeps the plan and the budget, pulls live data from free, open APIs, and goes looking for things on its own: better prices on the stays you've picked, and unusual places that fit the gaps in your days. It installs on a phone and keeps working without signal. Everything runs on free plans: Vercel Hobby, Neon's free Postgres, and keyless or free-key APIs.
 
-The look and interactions follow the Kuzic design system (Geist type, warm light and dark themes, sheets, segmented controls, a bottom dock on phones), with two trip touches: Shippori Mincho for city and chapter names, and a sakura route line.
+The look and interactions follow the Kuzic design system (Geist type, warm light and dark themes, sheets, segmented controls, a bottom dock on phones), with trip touches: Shippori Mincho for city and chapter names, a sakura route line on the map, and one rail-line color per city (Tokyo blue, Hakone green, Kyoto plum, Naoshima gold).
 
 ## Screens
 
 | Screen | What it does |
 | --- | --- |
-| **Plan** | The timeline, one section per city: a numbered bar (matching its pin on the map) sticks to the top while you scroll through that city, with its dates and nights; day cards lead with the date ("Day 6 · Tue Apr 6"). **Book ahead** is a separate checklist of deadlines. Day cards show weather, walking times between stops (red when a walk is longer than the gap), day maps, costs, booking links and confirmation codes; the colored stripe shows priority (change it with the dots on a computer, or in Edit). **Change cities and nights** adds or removes cities and changes how long you stay in each. Free gaps of 45 minutes or more offer **Find something nearby**. **Check opening hours** flags stops that may be closed when you plan to be there. |
+| **Plan** | Opens on the **Overview**: the map, then the trip as a rail line, each city a station (dates, nights, the stay, to-dos done, high-priority ones open) with the train between cities on a dashed leg, food and spending choices, and the **Expected total for two** (beside the plan on a computer, at the end on a phone; the **Estimate** in the tab row jumps to it). A tab row that stays at the top switches to one city, **Book ahead** (a checklist of deadlines) or **Not on a day yet**. A city tab shows only that city: where to stay, getting there, things to do, then its days. Day cards show weather, walking times between stops (red when a walk is longer than the gap), day maps, costs, booking links and confirmation codes; the colored stripe shows priority (change it with the dots on a computer, or in Edit). Free gaps of 45 minutes or more offer **Find something nearby**. **Check opening hours** flags stops that may be closed when you plan to be there. Links like `#/plan/c3` open a city, `#/plan/d07` a day. |
 | **Today** | Phone-first travel-day view: the next stop with walking time, directions and booking code, tonight's hotel, the day's checklist, and quick expense logging. Before the trip it previews April 1. |
 | **Deals** | The price watch on every stay: live Rakuten price against the plan, lowest price seen, your alert price, what shifting the stay a day earlier or later would cost, meals-included compared fairly with eating out, links to book direct, prefilled searches on Booking.com, Google, Jalan, Ikyu and Rakuten, check history, and sale dates with calendar reminders. |
 | **Explore** | **Nearby**: unusual places near any stop (old shops, small museums, bathhouses, heritage sites) ranked by a uniqueness score, open at the time you pick, within a short walk. **Search**: prefilled searches for the day and stop you pick: Google Maps (things to do, cafés, restaurants, old shops, bathhouses, anything you type), Tabelog, events and cherry-blossom forecasts, and hotel sites for that night. |
@@ -16,9 +16,19 @@ The look and interactions follow the Kuzic design system (Geist type, warm light
 
 Prices show dollars first with the yen beside them ($51 · ¥8,000) everywhere: the plan, hotel prices, Deals, the spending log, the fare table and price-alert emails.
 
+## Choosing stays and trains
+
+Each city tab lists places to stay with April price ranges for two (hotels and ryokan, filter by type, 6 shown until **Show more**), the ways to get there from the city before, and things to do there. The first row is what's **On the plan** now, at the plan's own price. Pick any row to see what it does to the **Expected total for two**: stays use the route's nights, ryokan dinners come off the food budget, and the summary says how far the choices are from the plan. A stay can be split between two places (**Split this stay**, then the nights at the second one). Food style, shipping suitcases, shopping and flights are on the Overview.
+
+- Choices are shared (both of you see the same picks, saved in `settings/picks`) and change only the estimate: nothing on the plan, in Money or in Recent changes moves while you explore. **Reset to the plan** clears them.
+- **Put this stay on the plan** adds "Check in at …" on the city's first night (two check-ins for a split stay) with the estimated cost in dollars, and skips the hotel to-dos it replaces (turn on **Skipped** to bring one back). It asks first, lists what it adds and skips, and warns when a skipped stay is paid or has a confirmation code. Money then counts the new stay. For live Rakuten prices, add the hotel's Japanese name in Edit.
+- Trains stay choices only: each travel day already has its train to-dos.
+- Money still tracks what's on the plan; the estimate card shows that figure too, so the two totals are never confused.
+- The options come from `public/catalog.js` (prices from recent published rates and 2026 fares at ¥155 to $1). A city added with **Change cities and nights** that isn't in the catalog gets Booking.com and Google hotel searches for its dates instead, and a Google Maps transit link for getting there.
+
 ## Changing the route
 
-**Change cities and nights** (under the station strip, or the pencil on any city bar) opens one sheet for the whole route: a − / + stepper for the nights in each city, a remove button (with Undo until you save), and **Add a city**, which finds the city on OpenStreetMap so it gets a map pin, weather and Explore. The top line shows the trip length and end date as you go, with a warning when the plan no longer ends on the day your flight home leaves, and it lists hotel check-ins whose date would move. Nothing changes until **Save route**.
+**Change cities and nights** (under the rail on the Overview, or the pencil on any city tab) opens one sheet for the whole route: a − / + stepper for the nights in each city, a remove button (with Undo until you save), and **Add a city**, which finds the city on OpenStreetMap so it gets a map pin, weather and Explore. The top line shows the trip length and end date as you go, with a warning when the plan no longer ends on the day your flight home leaves, and it lists hotel check-ins whose date would move. Nothing changes until **Save route**.
 
 - Adding nights adds empty days at the end of that city's stay; later cities move later.
 - Removing nights takes days off the end of the stay. Their to-dos are never deleted: they wait under **Not on a day yet** at the bottom of the plan. Edit one and pick a day in the new **Day** field (any to-do can move to another day the same way).
@@ -107,7 +117,9 @@ Without `DATABASE_URL` the dev server keeps data in `.local-db.json` (`LOCAL_DB_
 
 - `public/index.html`, `app.css`, `app.js`: the page, the design tokens and components, and the core (sync, Plan, Money, sheets, routing).
 - `public/deals.js`, `explore.js`, `today.js`: the Deals, Explore (Nearby and Search) and Today screens.
-- `public/trip.js`: trip facts and pure helpers shared by the page and the server: the default route and the route builder (`cleanRoute`, `buildTrip`; cities, nights, days and dates come from `settings/route`), search links, taste profile, settle-up, sale dates.
+- `public/stays.js`: on the Plan screen, where to stay, getting there, things to do, trip-wide choices, the expected total and **Put this stay on the plan**.
+- `public/catalog.js`: the stays, trains and things to do with their prices, and the pure math behind the estimate (`readPicks` is the trust boundary for `settings/picks`; `npm test` covers it).
+- `public/trip.js`: trip facts and pure helpers shared by the page and the server: the default route and the route builder (`cleanRoute`, `buildTrip`; cities, nights, days and dates come from `settings/route`), Plan tab links (`planTarget`), search links, taste profile, settle-up, sale dates.
 - `public/shim.js`: connects the page to the API: key handling, 5-second sync, offline copy and outbox.
 - `public/sw.js`, `manifest.webmanifest`, icons: the installable offline app.
 - `api/db.js`: stores the plan in Postgres. Open to anyone unless `EDIT_KEY` is set, in which case reads and writes need it.

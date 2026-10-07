@@ -1,5 +1,6 @@
 /* Japan trip planner: core (sync, plan, money, sheets, routing). Feature screens live in their own modules. */
-import { TRIP, TRAVELERS, CHAPTERS, GROUPS, GROUP_DATE, CH_COORD, CH_CITY, TRIP_END, TRIP_NIGHTS, ROUTE, groupCh, opensAt, settle, useRoute, buildTrip, cleanRoute, dateRange, dayLabel } from './trip.js';
+import { TRIP, TRAVELERS, CHAPTERS, GROUPS, GROUP_DATE, CH_COORD, CH_CITY, TRIP_END, TRIP_NIGHTS, ROUTE, groupCh, opensAt, settle, useRoute, buildTrip, cleanRoute, dateRange, dayLabel, planTarget } from './trip.js';
+import { poolsFor, CITY } from './catalog.js';
 
 const PRIOS = ['high', 'medium', 'low'];
 const PLABEL = { high: 'High', medium: 'Medium', low: 'Low' };
@@ -48,6 +49,7 @@ const ICONS = {
   alert: ['m21.7 18-8-14a2 2 0 0 0-3.5 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3', 'M12 9v4', 'M12 17h.01'],
   bed: ['M2 4v16', 'M2 8h18a2 2 0 0 1 2 2v10', 'M2 17h20', 'M6 8v9'],
   chat: ['M7.9 20A9 9 0 1 0 4 16.1L2 22Z'], arrow: ['M5 12h14', 'm12 5 7 7-7 7'],
+  train: ['M8 3.1V7a4 4 0 0 0 8 0V3.1', 'm9 15-1-1', 'm15 15 1-1', 'M9 19c-2.8 0-5-2.2-5-5v-4a8 8 0 0 1 16 0v4c0 2.8-2.2 5-5 5Z', 'm8 19-2 3', 'm16 19 2 3'],
   plane: ['M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z']
 };
 function icon(name, cls) {
@@ -162,7 +164,8 @@ function buildNav() {
   for (const n of document.querySelectorAll('[data-nav]')) n.onclick = () => go(n.dataset.nav);
 }
 function go(id, anchor) {
-  if (location.hash !== '#/' + id || anchor) history.pushState(null, '', '#/' + id);
+  const h = '#/' + id + (anchor ? '/' + anchor : '');
+  if (location.hash !== h) history.pushState(null, '', h);
   show(id, anchor);
 }
 function show(id, anchor) {
@@ -171,40 +174,102 @@ function show(id, anchor) {
   document.querySelectorAll('[data-screen]').forEach(s => { s.hidden = s.dataset.screen !== id; });
   document.querySelectorAll('[data-nav]').forEach(n => { if (n.dataset.nav === id) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current'); });
   if (modules[id] && modules[id].render) modules[id].render();
-  if (id === 'plan' && changed) requestAnimationFrame(renderMap);
+  if (id === 'plan') return showPlan(anchor || 'overview', changed);
   if (anchor) { const t = document.getElementById(anchor); if (t) requestAnimationFrame(() => t.scrollIntoView({ block: 'start' })); }
   else if (changed) scrollTo(0, 0);
 }
+/* Plan tabs: #/plan (overview), #/plan/c3 (a city), #/plan/d07 (a day: its city, scrolled to it), #/plan/<item id> (flashed).
+   planTab keeps the raw target: an item id resolves once the items have loaded. Only the open tab is rendered. */
+let planTab = 'overview';
+function showPlan(x, force) {
+  const moved = x !== planTab; planTab = x;
+  if (moved || force) { render(); requestAnimationFrame(renderMap); }
+  if (!reveal(x) && (moved || force)) scrollTo(0, 0);
+}
+/* After a Plan render: scroll to a day or flash an item. */
+function reveal(x) {
+  const day = document.getElementById(x);
+  // Re-find it in the frame: a sync landing in the same tick re-renders the tab and detaches this node.
+  if (day && day.classList.contains('day')) { requestAnimationFrame(() => { const d = document.getElementById(x); if (d) d.scrollIntoView({ block: 'start' }); }); return true; }
+  const sel = 'li.item[data-id="' + CSS.escape(x) + '"]', li = document.querySelector(sel);
+  if (!li) return false;
+  flashing = { id: x, until: Date.now() + 1600 };   // renderItem keeps it lit: walk and weather results re-render the tab
+  li.scrollIntoView({ block: 'center' }); li.classList.add('flash');
+  setTimeout(() => { const n = document.querySelector(sel); if (n) n.classList.remove('flash'); }, 1600);
+  return true;
+}
+let flashing = null;
 function route() {
   const h = decodeURIComponent(location.hash.slice(1));
   if (!h || h === '/') return show('plan');
   if (h.startsWith('/')) { const [id, anchor] = h.slice(1).split('/'); return show(id, anchor); }
   if (h === 'budget') return show('money', 'budget');
-  if (document.getElementById(h)) return show('plan', h); // #c1, #d03
+  if (planTarget(h, items) !== 'overview') return show('plan', h); // #c1, #d03
   show('plan');
 }
 addEventListener('popstate', route);
 addEventListener('hashchange', route);
 
-/* ---------- Route line + overview map (both drawn from the route) ---------- */
-function renderRoute() {
-  renderMap();
-  const ol = $('#route'); ol.textContent = '';
-  CHAPTERS.filter(c => c.station).forEach(c => {
-    const li = el('li'); const a = el('a'); a.href = '#' + c.id;
-    a.onclick = (ev) => { ev.preventDefault(); scrollToId(c.id); };
-    const mine = live().filter(i => groupCh(i.group) === c.id);
-    const open = mine.filter(i => i.priority === 'high' && !i.done).length;
-    const dn = mine.filter(i => i.done).length;
-    const name = el('span', 'name'); name.append(el('span', 'stopnum', String(c.n)), document.createTextNode(c.station));
-    a.append(name, el('span', 'dates', c.dates),
-      el('span', 'prog', loaded && mine.length ? dn + ' of ' + mine.length + ' done' : ''),
-      el('span', 'open', loaded && open ? open + ' high open' : ''));
-    a.setAttribute('aria-label', c.n + '. ' + c.station + ', ' + c.dates + (open ? ', ' + open + ' high-priority items open' : ''));
-    li.append(a); ol.append(li);
-  });
+/* ---------- City tabs, the rail and the overview map (all drawn from the route) ---------- */
+/* A city's option pool, Japanese name and line color (one color per city, like a rail line; added cities use the route color). */
+function cityInfo(chId) {
+  const k = ROUTE.stops.findIndex(s => s.id === chId), pool = k >= 0 ? poolsFor(ROUTE.stops)[k] : null, c = pool ? CITY[pool] : null;
+  return { pool, jp: c ? c.jp : '', line: 'var(--' + (c ? 'city-' + c.color : 'route') + ')' };
 }
-function scrollToId(id) { const t = document.getElementById(id); if (t) t.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); }
+let tabShown = null;
+function renderTabs(tab) {
+  const ol = $('#cityTabs'); ol.textContent = '';
+  const st = CHAPTERS.filter(c => c.station);
+  const add = (id, badge, label, aria) => {
+    const li = el('li'), a = el('a'); a.href = '#/plan/' + id;
+    if (badge) { const b = el('span', 'stopnum'); b.append(badge); a.append(b); }
+    a.append(el('span', null, label));
+    if (aria) a.setAttribute('aria-label', aria);
+    if (id === tab) a.setAttribute('aria-current', 'page');
+    li.append(a); ol.append(li); return a;
+  };
+  add('overview', null, 'Overview');
+  st.forEach(c => {
+    const twin = st.filter(x => x.station === c.station).length > 1;
+    const a = add(c.id, String(c.n), c.station + (twin && c.area ? ', ' + c.area : ''), c.n + '. ' + c.station + (c.area ? ', ' + c.area : '') + ', ' + c.dates);
+    a.style.setProperty('--line', cityInfo(c.id).line);
+  });
+  add('book', icon('check'), 'Book ahead').classList.add('book');
+  if (loaded && unplaced().length) add('unplaced', icon('alert'), 'Not on a day yet').classList.add('unplaced');
+  if (tabShown !== tab) {   // keep the open tab in view on narrow screens (without moving the page)
+    tabShown = tab;
+    const cur = ol.querySelector('[aria-current]');
+    if (cur) ol.scrollLeft = Math.max(0, cur.parentNode.offsetLeft - 16);
+  }
+}
+/* The overview: each city a station on the line, the train between them on a dashed leg. stays.js adds the stay and the train. */
+function renderRail() {
+  const ol = $('#rail'); ol.textContent = '';
+  const st = CHAPTERS.filter(c => c.station), today = tokyoNow().date;
+  const leg = (node, ic, cls) => { const li = el('li', 'rail-leg' + (cls ? ' ' + cls : '')); const r = el('span', 'rail-line'); r.append(icon(ic)); li.append(r, node); ol.append(li); };
+  st.forEach((c, k) => {
+    const lg = plan('leg', k ? st[k - 1] : null, c); if (lg) leg(lg, k ? 'train' : 'plane');
+    const info = cityInfo(c.id), s = chStatus(c.id);
+    const li = el('li', 'rail-stop'); li.style.setProperty('--line', info.line);
+    const line = el('span', 'rail-line'); line.append(el('span', 'rail-dot'));
+    const body = el('div', 'rail-body');
+    const h = el('h2'), a = el('a'); a.href = '#/plan/' + c.id;
+    a.append(document.createTextNode(c.station));
+    if (info.jp) { const jp = el('span', 'jp', info.jp); jp.lang = 'ja'; a.append(jp); }
+    a.append(icon('chevron', 'go'));
+    h.append(a);
+    if (GROUPS.some(g => g.ch === c.id && g.date === today)) h.append(el('span', 'badge now', 'Today'));
+    body.append(h, el('p', 'rail-when', c.dates + ' · ' + nightsText(c.nights) + (c.area ? ' · ' + c.area : '')));
+    const x = plan('station', c); if (x) body.append(x);
+    const prog = el('p', 'rail-prog');
+    if (s.mine.length) { prog.append(el('span', s.done === s.mine.length ? 'ok' : null, s.done + ' of ' + s.mine.length + ' done')); if (s.high) prog.append(el('span', 'warn', s.high + ' high open')); }
+    else prog.append(document.createTextNode('Nothing planned yet'));
+    body.append(prog);
+    li.append(line, body); ol.append(li);
+  });
+  if (st.length) leg(el('p', 'rail-when', 'Fly home from ' + TRIP.airport.name + ' · ' + dayLabel(TRIP_END)), 'plane', 'end');
+}
+const plan = (k, ...a) => modules.plan && modules.plan[k] ? modules.plan[k](...a) : null;   // stays.js: station, leg, city, overview, aside
 function chStatus(chId) {
   const mine = live().filter(i => groupCh(i.group) === chId);
   const open = mine.filter(i => !i.done);
@@ -255,7 +320,7 @@ function renderMap() {
     const [x, y] = pos[i];
     const s = loaded ? chStatus(c.id) : { st: 'none', mine: [], open: [], high: 0, done: 0 };
     const name = c.area || c.station;
-    const a = sv('a', { href: '#' + c.id, tabindex: '0', class: 'pin' });
+    const a = sv('a', { href: '#/plan/' + c.id, tabindex: '0', class: 'pin' });
     const desc = c.n + '. ' + name + ', ' + c.dates + (loaded ? ': ' + s.done + ' of ' + s.mine.length + ' done' + (s.high ? ', ' + s.high + ' high-priority open' : '') : '');
     a.setAttribute('aria-label', desc);
     a.append(sv('title', {}, desc));
@@ -266,8 +331,8 @@ function renderMap() {
     const tw = Math.max(name.length * 10.2, dated ? c.dates.length * 7.6 : 0) * sc, l = labelSpot(x, y, tw, (dated ? 32 : 17) * sc, 14 * sc, placed, vb);
     a.append(sv('text', { class: 'nm', x: l.x, y: l.top + 13 * sc, 'text-anchor': l.a, 'font-size': 15 * sc, 'stroke-width': 4 * sc }, name));
     if (dated) a.append(sv('text', { class: 'dt', x: l.x, y: l.top + 29 * sc, 'text-anchor': l.a, 'font-size': 12 * sc, 'stroke-width': 4 * sc }, c.dates));
-    a.addEventListener('click', ev => { ev.preventDefault(); scrollToId(c.id); });
-    a.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); scrollToId(c.id); } });
+    a.addEventListener('click', ev => { ev.preventDefault(); go('plan', c.id); });
+    a.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go('plan', c.id); } });
     g.append(a);
   });
 }
@@ -568,10 +633,7 @@ function renderDayMap(g, list) {
   box.append(f);
   return box;
 }
-function flashItem(id) {
-  const li = document.querySelector('li.item[data-id="' + CSS.escape(id) + '"]');
-  if (li) { li.scrollIntoView({ block: 'center' }); li.classList.add('flash'); setTimeout(() => li.classList.remove('flash'), 1600); }
-}
+function flashItem(id) { if (!reveal(id)) go('plan', id); }   // on another tab: open it, then flash
 
 /* ---------- Live data ---------- */
 let features = {};
@@ -854,7 +916,8 @@ function checkBox(i) {
   hit.append(cb); return hit;
 }
 function renderItem(i, state) {
-  const li = el('li', 'item p-' + (i.priority || 'medium') + (i.done ? ' done' : '') + (i.kind === 'travel' ? ' travel' : '') + (state === 'now' ? ' now' : '') + (i.disabled ? ' skipped' : ''));
+  const li = el('li', 'item p-' + (i.priority || 'medium') + (i.done ? ' done' : '') + (i.kind === 'travel' ? ' travel' : '') + (state === 'now' ? ' now' : '') + (i.disabled ? ' skipped' : '')
+    + (flashing && flashing.id === i.id && Date.now() < flashing.until ? ' flash' : ''));
   li.dataset.id = i.id;
   li.append(el('span', 'stripe'));
   li.append(checkBox(i));
@@ -1255,38 +1318,60 @@ function openShare() {
 $('#shareBtn').addEventListener('click', openShare);
 
 /* ---------- Render ---------- */
+/* Controls that hold typing or a drag (data-hold) pause re-renders until their value is committed (dataset.v) or they lose
+   focus: the 5-second sync re-renders the whole tab and would replace them mid-edit. */
+let held = false;
+const holding = () => { const a = document.activeElement; return !!(a && a.matches && a.matches('[data-hold]') && a.value !== a.dataset.v); };
+document.addEventListener('focusout', () => setTimeout(() => { if (held && !holding()) { held = false; render(); } }, 0));
 function render() {
+  if (holding()) { held = true; return; }
+  const focusId = document.activeElement && document.activeElement.id;
   $('#tripFacts').textContent = TRAVELERS.join(' and ') + ' · ' + TRIP_NIGHTS + ' nights · ' + dateRange(TRIP.start, TRIP_END);
-  renderRoute();
-  const main = $('#main'); main.textContent = '';
+  let tab = planTarget(planTab, items);
+  if (tab === 'unplaced' && !unplaced().length) tab = 'overview';
+  const over = tab === 'overview';
+  // Overview: the trip at a glance. A tab: one city (or Book ahead) and nothing else.
+  for (const id of ['#planHero', '#mapCard', '#rail', '#logCard']) $(id).hidden = !over;
+  $('.routebar').hidden = !over; $('.toolbar').hidden = over;
+  renderTabs(tab); renderMap();
+  const main = $('#main'), head = $('#cityHead'); main.textContent = ''; head.textContent = ''; $('#rail').textContent = '';
   if (loaded) {
     const all = counts(live());
     $('#progress').hidden = !all.total;
     $('#meterFill').style.width = (all.total ? Math.round(100 * all.done / all.total) : 0) + '%';
     $('#progText').textContent = all.done + ' of ' + all.total + ' done';
-    CHAPTERS.forEach(c => {
+    const c = CHAPTERS.find(x => x.id === tab);
+    if (over) { renderRail(); const o = plan('overview'); if (o) main.append(o); }
+    else if (tab === 'unplaced') main.append(renderUnplaced(unplaced()));
+    else if (c) {
       const mine = live().filter(i => groupCh(i.group) === c.id), cc = counts(mine);
       const sec = c.station
         ? chapterShell(c.id, 'city', String(c.n), c.station, c.dates + ' · ' + nightsText(c.nights), canWrite)
         : chapterShell(c.id, 'book', icon('check'), c.name, 'Before you go', false);
-      const head = el('div', 'chapter-head');
-      if (c.station && c.name) head.append(el('p', 'theme', c.name));
+      if (c.station) {
+        const info = cityInfo(c.id); sec.style.setProperty('--line', info.line);
+        if (info.jp) { const jp = el('span', 'jp', info.jp); jp.lang = 'ja'; sec.querySelector('h2').append(jp); }
+      }
+      const ch = el('div', 'chapter-head');
+      if (c.station && c.name) ch.append(el('p', 'theme', c.name));
       const meta = el('p', 'meta');
       meta.append(document.createTextNode(c.place ? c.place + '. ' : ''), el('span', 'ok', cc.done + ' of ' + cc.total + ' done'));
       if (c.station) {   // a longer stay doesn't book itself: say when the hotels on the plan don't cover every night
         const booked = mine.filter(i => i.cat === 'lodging' && i.nights > 0).reduce((n, i) => n + i.nights, 0);
         if (booked < c.nights) meta.append(document.createTextNode(' '), el('span', 'warn', booked ? 'Hotels cover ' + booked + ' of ' + nightsText(c.nights) + '.' : 'No hotel on the plan yet.'));
       }
-      head.append(meta); sec.append(head);
-      GROUPS.filter(g => g.ch === c.id).forEach(g => sec.append(renderGroup(g)));
-      main.append(sec);
-    });
-    const lost = unplaced();
-    if (lost.length) main.append(renderUnplaced(lost));
+      ch.append(meta); sec.append(ch);
+      if (c.station) { const x = plan('city', c); if (x) sec.append(x); }
+      head.append(sec);
+      GROUPS.filter(g => g.ch === c.id).forEach(g => main.append(renderGroup(g)));
+    }
     fillNames();
   }
+  const est = $('#estimate'); est.textContent = '';
+  const a = loaded ? plan('aside') : null; est.hidden = !a; if (a) est.append(a);
   renderMoney();
   if (modules[screen] && modules[screen].render && screen !== 'plan' && screen !== 'money') modules[screen].render();
+  if (focusId && document.activeElement && document.activeElement.id !== focusId) { const f = document.getElementById(focusId); if (f) f.focus({ preventScroll: true }); }
 }
 async function fillNames() {
   const spans = [...document.querySelectorAll('.done-by[data-uid]')];
@@ -1387,7 +1472,7 @@ $('#statusF').addEventListener('click', ev => {
 function updateToday() {
   const n = tokyoNow(); const g = Object.keys(GROUP_DATE).find(k => GROUP_DATE[k] === n.date);
   const b = $('#today'); b.hidden = !g;
-  b.onclick = () => scrollToId(g);
+  b.onclick = () => go('plan', g);
 }
 setInterval(() => { updateToday(); if (loaded) render(); }, 5 * 60000);
 updateToday();
@@ -1400,7 +1485,8 @@ export const ctx = {
   $, el, sv, icon, withIcon, iconBtn, extLink, toast, openSheet, closeSheet, copyText, safeUrl, q,
   get items() { return items; }, live, get db() { return db; }, get uid() { return uid; }, get canWrite() { return canWrite; }, get features() { return features; },
   get settings() { return settings; }, get expenses() { return expenses; }, get loaded() { return loaded; }, get modules() { return modules; },
-  write, create, addLog, handleErr, render, go, register: (id, m) => { modules[id] = m; buildNav(); route(); },
+  write, create, addLog, handleErr, render, go, register: (id, m) => { modules[id] = m; buildNav(); route(); if (loaded) render(); },
+  totals, cityInfo, nightsText,
   gapHooks, itemHooks, openEditor, checkBox, needEdit, flashItem, hasPin, mins, fmt12, dur, byTime, tokyoNow, timeRange, mapsUrl, routeUrl, mapQuery,
   toUSD, fUSD, fJPY, fAmt, hasCost, rate, addDaysISO, fmtOpens, wxText, walkLegFor, linkList, ago, CATS, watchFor
 };
@@ -1415,7 +1501,7 @@ export function docsOf(path) { return window.TRIP_API && API.doc ? API.doc(path)
 /* ---------- Boot ---------- */
 buildNav();
 route();
-renderRoute();
+render();
 async function boot() {
   if (!window.claude || typeof window.claude.use !== 'function') { setStatus(['The plan couldn\'t start. Reload the page to try again.']); return; }
   const [d, u] = await Promise.all([window.claude.use('db'), window.claude.use('user')]);
@@ -1463,7 +1549,7 @@ async function boot() {
     setTimeout(loadWeather, 50);
     if (!items.length) setStatus(['The plan is empty. Add items to any day below.']); else setAccessStatus();
     render();
-    if (first && location.hash && !location.hash.startsWith('#/')) route(); // #d03-style anchors exist only after the first render
+    if (first && location.hash) route(); // item and day links resolve only once the items (and the stored route) are in
   }, () => { setStatus(['The plan couldn\'t load. Reload the page to try again.']); });
   db.collection('log').orderBy('at', 'desc').limit(25).onSnapshot(snap => { logRows = snap.docs.map(s => s.data()); renderLog(); }, () => {});
   db.collection('watch').onSnapshot(() => { if (loaded) render(); }, () => {});

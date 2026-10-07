@@ -94,6 +94,15 @@ export function useRoute(doc) {
 }
 useRoute(null);
 export const groupCh = (g) => { const x = GROUPS.find(G => G.id === g); return x ? x.ch : null; };
+/* Which Plan tab shows x: a chapter id, a day id (its chapter), an item id (its day's chapter, or "unplaced"), else the overview.
+   Resolved from data, never from the DOM: only the open tab is rendered. */
+export function planTarget(x, items = []) {
+  if (!x || x === 'overview') return 'overview';
+  if (x === 'unplaced' || CHAPTERS.some(c => c.id === x)) return x;
+  const ch = groupCh(x); if (ch) return ch;
+  const it = items.find(i => i.id === x);
+  return it ? groupCh(it.group) || 'unplaced' : 'overview';
+}
 /* A hotel the price watch follows: lodging with a hotel name, nights, and a day that still exists. */
 export function isStay(i, gd = GROUP_DATE) { return !i.disabled && i.cat === 'lodging' && !!i.hotelQuery && i.nights > 0 && !!gd[i.group]; }
 

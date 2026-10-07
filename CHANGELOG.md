@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.4.0 (2026-10-06)
+
+### Plan, one city at a time
+- Plan opens on an **Overview**: the map, the trip as a rail line (each city a station with its dates, nights, stay and to-dos; the train between cities on a dashed leg), and the **Expected total for two**.
+- A tab row that stays at the top switches to one city, **Book ahead** or **Not on a day yet**. A city tab shows only that city's stays, getting there, things to do and days, so the page is a fraction of its old length. It replaces the station strip; the city heading no longer sticks (the tab row does).
+- Each city has its own rail-line color (Tokyo blue, Hakone green, Kyoto plum, Naoshima gold), on its tab, its heading and its stop on the rail.
+- Links: `#/plan/c3` opens a city, `#/plan/d07` a day; old `#c1` and `#d03` links still work. Map pins, **Jump to today** and Explore's **Add** open the right tab first.
+
+### Where to stay and how to get there (from the trip planner page)
+- Each city lists places to stay with April prices for two (hotels and ryokan, filter by type, show more), the trains or buses from the city before, and things to do there; the Overview has food style, shipping suitcases, shopping and flights.
+- The first stay row is what's **On the plan**, at the plan's price. Picks change only the shared estimate (range, per day, the gap from the plan, a breakdown); nothing on the plan or in Recent changes moves. **Reset to the plan** clears them.
+- Split a stay between two places. Ryokan dinners come off the food budget. Nights always come from the route, so changing nights re-prices the stay.
+- **Put this stay on the plan** adds the check-in (two for a split stay) with its estimated cost and skips the hotel to-dos it replaces, after asking; it warns when one is paid or has a code. Money then counts it.
+- Picks are stored in `settings/picks`; no doc means "what's on the plan", so nothing to migrate. New files `public/catalog.js` (options and the estimate math) and `public/stays.js`; both are in the offline app.
+
 ## 2.3.0 (2026-10-01)
 
 ### Change cities and nights

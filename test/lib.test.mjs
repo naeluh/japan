@@ -7,7 +7,7 @@ import { applyCheck, flexFrom, opensAt, dueReminders } from '../api/_lib/alerts.
 import { toICS } from '../api/_lib/ics.js';
 import { summarizePlans } from '../api/_lib/rakuten.js';
 import { buildTrip, cleanRoute, isStay, DEFAULT_ROUTE, useRoute, planTarget } from '../public/trip.js';
-import { poolsFor, legKeys, readPicks, estimate, stayParts, POOLS, EXTRAS, FOOD } from '../public/catalog.js';
+import { poolsFor, legKeys, readPicks, estimate, stayParts, POOLS, LEGS, EXTRAS, FOOD } from '../public/catalog.js';
 
 test('opening hours: common forms', () => {
   // 2027-04-06 is a Tuesday
@@ -218,6 +218,9 @@ test('stays: cities map to option pools by name; legs join known pools', () => {
   assert.deepEqual(poolsFor(r.stops), ['tokyo', 'hakone', 'kyoto', null, 'naoshima', 'tokyo2']);
   assert.deepEqual(legKeys(poolsFor(r.stops)), ['airport', 'tokyo>hakone', 'hakone>kyoto', null, null, 'naoshima>tokyo2']);
   assert.ok(POOLS.tokyo2[0].id === 'k5' && POOLS.tokyo2.some(o => o.id === 'trunk'), 'east side first, west side kept');
+  const photos = [...Object.values(POOLS).flat(), ...Object.values(LEGS).flatMap(L => L.options), ...EXTRAS].filter(o => o.photo);
+  assert.ok(photos.length >= 20);
+  for (const { photo: [src, credit, page] } of photos) assert.ok(/^https:\/\/(upload|thumb)\.wikimedia\.org\//.test(src) && credit.length > 3 && page.startsWith('https://commons.wikimedia.org/'), 'free Commons photo with a credit');
 });
 
 test('stays: readPicks is the trust boundary for settings/picks', () => {

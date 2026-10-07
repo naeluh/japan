@@ -11,6 +11,7 @@
 ### Where to stay and how to get there (from the trip planner page)
 - Each city lists places to stay with April prices for two (hotels and ryokan, filter by type, show more), the trains or buses from the city before, and things to do there; the Overview has food style, shipping suitcases, shopping and flights.
 - The first stay row is what's **On the plan**, at the plan's price. Picks change only the shared estimate (range, per day, the gap from the plan, a breakdown); nothing on the plan or in Recent changes moves. **Reset to the plan** clears them.
+- Rows show a free Wikipedia photo of the place when one exists (credited, license linked); rows without one look as before.
 - Split a stay between two places. Ryokan dinners come off the food budget. Nights always come from the route, so changing nights re-prices the stay.
 - **Put this stay on the plan** adds the check-in (two for a split stay) with its estimated cost and skips the hotel to-dos it replaces, after asking; it warns when one is paid or has a code. Money then counts it.
 - Picks are stored in `settings/picks`; no doc means "what's on the plan", so nothing to migrate. New files `public/catalog.js` (options and the estimate math) and `public/stays.js`; both are in the offline app.

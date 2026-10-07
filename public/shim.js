@@ -1,7 +1,9 @@
 /* Runs the planner outside Claude: provides window.claude.use("db" | "user") backed by this site's /api routes.
    The share link carries a key (?k=...) that is saved in this browser and sent with every request.
-   Offline: the last synced plan is kept in localStorage and shown at once; edits made without signal wait in an
-   outbox and are sent, in order, when the connection is back. */
+   Every edit shows at once and goes into one ordered queue (the outbox), online or not: the server receives edits one at
+   a time in the order they were made, and each fetch re-applies the edits it can't contain yet (still queued, or saved
+   after the fetch left), so a poll can never put an older value back on screen. Offline, the queue waits in localStorage
+   and sends when the connection is back; the last synced plan is kept there too and shown at once. */
 (function () {
   "use strict";
   const LS_KEY = "trip:key", LS_UID = "trip:uid", LS_NAME = "trip:name", LS_SNAP = "trip:snap", LS_CFG = "trip:cfg", LS_OUT = "trip:outbox";
@@ -33,14 +35,17 @@
 
   /* ---------- document store with polling ---------- */
   const docs = new Map();
-  let rev = 0, epoch = "", loaded = false, loading = null;
+  let rev = 0, epoch = "", loaded = false, loading = null, again = false, full = false;
   window.TRIP_API.doc = (p) => docs.get(p);
   const listeners = new Set();
   const snapDoc = (path, v) => ({ id: path.split("/").pop(), exists: v !== undefined, data: () => v, metadata: { fromCache: false, hasPendingWrites: false } });
   function fireAll() { listeners.forEach(l => { try { l.fire(); } catch (e) { console.error(e); } }); }
+  // Same nested merge as the server's update (api/db.js), so the optimistic copy matches what comes back.
+  const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+  function merge(a, b) { const out = Object.assign({}, a || {}); for (const k of Object.keys(b)) out[k] = isObj(b[k]) && isObj(out[k]) ? merge(out[k], b[k]) : b[k]; return out; }
   function applyOp(o) {
     if (o.op === "set") docs.set(o.path, o.data);
-    else if (o.op === "update") docs.set(o.path, Object.assign({}, docs.get(o.path) || {}, o.data));
+    else if (o.op === "update") docs.set(o.path, merge(docs.get(o.path), o.data));
     else docs.delete(o.path);
   }
 
@@ -63,40 +68,52 @@
       try { localStorage.setItem(LS_SNAP, JSON.stringify({ rev, epoch, at: Date.now(), docs: out })); } catch (e) { /* full or blocked: stay online-only */ }
     }, 800);
   }
-  let flushing = null;
-  function flush() {
-    if (flushing) return flushing;
-    flushing = (async () => {
-      while (outbox.length) {
-        const o = outbox[0];
-        try { await api("/api/db", { method: "POST", body: JSON.stringify(o) }); outbox.shift(); saveOutbox(); }
-        catch (e) {
-          if (netErr(e)) break;                 // still offline: try again later
-          outbox.shift(); saveOutbox();          // the server refused it: drop it and say so
-          if (window.TRIP_API.onSyncError) window.TRIP_API.onSyncError(e, o); else console.error(e);
-        }
-      }
-    })().finally(() => { flushing = null; });
+  /* The queue, sent one edit at a time. waiting: each edit's promise for the page (not stored: after a reload nobody waits).
+     acked: edits the server took, numbered, so a fetch that left before one was taken re-applies it. */
+  const waiting = new Map(); let acked = [], ackN = 0;
+  const settle = (o, err) => { const w = waiting.get(o); if (!w) return; waiting.delete(o); if (err) w.reject(err); else w.resolve(); };
+  let flushing = null, reflush = false;
+  function flush() {   // like pull(): an edit queued while the loop is finishing gets another pass, never a stale answer
+    if (flushing) { reflush = true; return flushing; }
+    flushing = (async () => { do { reflush = false; await flushOnce(); } while (reflush); })().finally(() => { flushing = null; });
     return flushing;
+  }
+  async function flushOnce() {
+    let took = false;
+    while (outbox.length) {
+      const o = outbox[0];
+      try { await api("/api/db", { method: "POST", body: JSON.stringify(o) }); outbox.shift(); saveOutbox(); acked.push({ o, n: ++ackN }); took = true; settle(o); }
+      catch (e) {
+        if (netErr(e)) { outbox.forEach(x => settle(x)); break; }   // offline: the edits are safe in the queue, the page needn't wait
+        outbox.shift(); saveOutbox(); full = true; took = true;      // the server refused it: drop it, reload the true state, say so
+        if (waiting.has(o)) settle(o, e); else if (window.TRIP_API.onSyncError) window.TRIP_API.onSyncError(e, o); else console.error(e);
+      }
+    }
+    if (took) pull();
   }
   window.addEventListener("online", () => { flush().then(() => pull()); });
 
-  async function pull() {
-    if (loading) return loading;
-    loading = (async () => {
-      try {
-        const r = await api("/api/db?since=" + (loaded ? rev : 0) + (loaded && epoch ? "&epoch=" + encodeURIComponent(epoch) : ""));
-        let changed = !!r.full;
-        if (r.full) docs.clear();
-        for (const [p, v] of Object.entries(r.docs || {})) { changed = true; if (v === null) docs.delete(p); else docs.set(p, v); }
-        rev = r.rev; epoch = r.epoch || epoch; loaded = true;
-        if (outbox.length) { outbox.forEach(applyOp); changed = true; flush(); } // pending offline edits stay visible until they land
-        if (changed) { fireAll(); saveSnap(); }
-      } catch (e) {
-        if (!loaded) listeners.forEach(l => l.error && l.error(e));
-      } finally { loading = null; }
-    })();
+  /* A fetch asked for while one is running runs again right after it (never answered by the older one). */
+  function pull() {
+    if (loading) { again = true; return loading; }
+    loading = (async () => { try { do { again = false; await pullOnce(); } while (again); } finally { loading = null; } })();
     return loading;
+  }
+  async function pullOnce() {
+    const from = ackN, whole = !loaded || full; full = false;
+    try {
+      const r = await api("/api/db?since=" + (whole ? 0 : rev) + (!whole && epoch ? "&epoch=" + encodeURIComponent(epoch) : ""));
+      let changed = !!r.full;
+      if (r.full) docs.clear();
+      for (const [p, v] of Object.entries(r.docs || {})) { changed = true; if (v === null) docs.delete(p); else docs.set(p, v); }
+      rev = r.rev; epoch = r.epoch || epoch; loaded = true;
+      const late = acked.filter(a => a.n > from); acked = late;          // taken after this fetch left: not in its answer yet
+      if (late.length || outbox.length) { late.forEach(a => applyOp(a.o)); outbox.forEach(applyOp); changed = true; }
+      if (outbox.length) flush();
+      if (changed) { fireAll(); saveSnap(); }
+    } catch (e) {
+      if (!loaded) listeners.forEach(l => l.error && l.error(e));
+    }
   }
   window.TRIP_API.pull = () => pull();
   let timer = null;
@@ -120,21 +137,14 @@
     })().finally(() => { naming = null; });
     return naming;
   }
-  async function write(op, path, data) {
-    const before = docs.has(path) ? docs.get(path) : undefined;
+  /* Show it now, queue it, send in order. Resolves once the server has it (or it's safely queued offline); rejects if refused. */
+  function write(op, path, data) {
     const o = { op, path, data };
     applyOp(o); fireAll();
-    const queue = () => { outbox.push(o); saveOutbox(); saveSnap(); };   // resolves: the page shouldn't wait for signal
     ensureName().catch(() => {});   // the name only labels Recent changes: never hold an edit hostage to the question
-    try {
-      if (outbox.length) { queue(); flush(); return; }                    // keep order behind edits already waiting
-      await api("/api/db", { method: "POST", body: JSON.stringify(o) });
-    } catch (e) {
-      if (netErr(e)) { queue(); return; }
-      if (before === undefined) docs.delete(path); else docs.set(path, before);   // refused (read-only, bad data): undo and tell the page
-      fireAll(); throw e;
-    }
-    pull();
+    const done = new Promise((resolve, reject) => waiting.set(o, { resolve, reject }));
+    outbox.push(o); saveOutbox(); saveSnap(); flush();
+    return done;
   }
   const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 

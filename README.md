@@ -20,7 +20,7 @@ Prices show dollars first with the yen beside them ($51 · ¥8,000) everywhere: 
 
 Each city tab lists places to stay with April price ranges for two (hotels and ryokan, filter by type, 6 shown until **Show more**), the ways to get there from the city before, and things to do there. The first row is what's **On the plan** now.
 
-- **Picking a stay or a train changes the plan at once**: the day-by-day gets "Check in at …" (or the train) in place of the old to-do, at the same time of day, and Money and the nightly price watch follow. The plan's own to-dos are skipped, not deleted, and **Back to the original plan** puts them back; a later pick replaces the one before instead of piling up. Anything paid or with a confirmation code asks first. Each pick is one line in Recent changes.
+- **Picking a stay or a train changes the plan at once**: the day-by-day gets "Check in at …" (or the train) in place of the old to-do, at the same time of day, and Money and Today follow at once. The nightly price watch starts once the stay has the hotel's name for live prices (Japanese works best): Deals lists picked stays under **Not watched yet**, one tap from Edit. The plan's own to-dos are skipped, not deleted, and **Back to the original plan** puts them back; a later pick replaces the one before instead of piling up. Anything paid or with a confirmation code asks first. Each pick is one line in Recent changes.
 - A train pick replaces only the long-distance part of that travel day (the Shinkansen, Romancecar, ferry and Marine Liner to-dos); taxis, local buses and the walk to the station stay. The airport choice covers the first and last day, half the round trip on each.
 - A stay can be split between two places (**Split this stay**, the nights at the second one, then the place): that makes two check-ins.
 - Food style, shipping suitcases, shopping and flights (Overview) and the things to do on each tab are shared choices that only shape the **Expected total for two** (saved in `settings/picks`; **Reset food and extras** clears them). Stays and trains in the total are what's on the plan.
@@ -91,7 +91,7 @@ Booking.com, Google Hotels, Jalan, Ikyu, Tabelog and Google Maps have no free AP
 
 ## Travel mode
 
-Open the site on your phone and use **Add to Home Screen**. The app shell is cached by a service worker and the last synced plan is kept on the phone, so Today, codes and the timeline work without signal. Changes made offline wait in a queue (the header shows **Offline · N to sync**) and send in order when you're back online.
+Open the site on your phone and use **Add to Home Screen**. The app shell is cached by a service worker and the last synced plan is kept on the phone, so Today, codes and the timeline work without signal. Every change shows at once and goes into one queue that sends to the server one at a time, in the order you made them, online or not; offline the queue waits (the header shows **Offline · N to sync**) and sends when you're back. A sync that started before your change can't put the old value back on screen, and two quick changes to the same thing always land in order (`test/shim.test.mjs` pins this).
 
 ## What limits "best deal"
 

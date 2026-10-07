@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.5.1 (2026-10-07)
+
+### Changes stick on screen
+- Every change now goes into one ordered queue that sends one edit at a time, online or offline, so two quick changes to the same thing (food, then bags; check, then uncheck) can't reach the server out of order.
+- A sync that started before a change can no longer put the old value back on screen: each sync re-applies the changes it couldn't contain yet. A change saved while a sync was running gets its own fresh sync right after, instead of waiting up to 5 seconds for the next one.
+- A just-added to-do no longer disappears for a moment when another change is written at the same time (picking a stay writes the check-in and a Recent changes line together).
+- Updates merge nested fields on screen the same way the server does. A refused change is undone by reloading the true state.
+- New `test/shim.test.mjs` drives the sync layer against a fake server that holds and reorders requests.
+
+### Deals
+- Stays on the plan that the nightly price watch can't follow yet (picked on a city tab, or with no hotel name) are listed under **Not watched yet**, with Edit one tap away.
+
 ## 2.5.0 (2026-10-06)
 
 - Picking a stay or a train on a city tab now changes the day-by-day plan right away: the new check-in or train takes the old to-do's place and time, and Money and the price watch follow. The plan's own to-dos are skipped, not deleted; **Back to the original plan** restores them, and picking again replaces the previous pick. Paid or booked to-dos ask before they're replaced. "Put this stay on the plan" is gone (every pick does it).

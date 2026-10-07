@@ -178,6 +178,19 @@ function render() {
   const a = alertsCard(stays); if (a) root.append(a);
   if (!stays.length) root.append(el('p', 'empty', 'No stays to watch. Give a hotel check-in a hotel name and nights under Edit.'));
   stays.forEach(i => root.append(stayCard(i)));
+  // Stays on the plan the watch can't follow yet (picked on a city tab, or typed without a hotel name): say so, one tap to fix.
+  const unwatched = ctx.live().filter(i => i.cat === 'lodging' && i.nights > 0 && GROUP_DATE[i.group] && !isStay(i)).sort((a, b) => GROUP_DATE[a.group].localeCompare(GROUP_DATE[b.group]));
+  if (unwatched.length) {
+    const c = el('section', 'card pad'); c.append(el('h2', 'card-title', 'Not watched yet'),
+      el('p', 'lead', 'Add the hotel\'s name for live prices (the Japanese name works best) and the nightly check starts following it.'));
+    const ul = el('ul', 'exp');
+    unwatched.forEach(i => {
+      const li = el('li'); li.append(el('span', 'grow', (i.place || i.title || 'Hotel').split(',')[0]), el('span', 'meta', md(GROUP_DATE[i.group]) + ', ' + i.nights + (i.nights === 1 ? ' night' : ' nights')));
+      if (ctx.canWrite) li.append(ctx.iconBtn('pencil', 'Add a hotel name to ' + (i.title || 'this stay'), () => ctx.openEditor(i)));
+      ul.append(li);
+    });
+    c.append(ul); root.append(c);
+  }
   root.append(saleCard());
   const lim = el('section', 'card pad');
   lim.append(el('h2', 'card-title', 'What "best deal" can and can\'t see'),

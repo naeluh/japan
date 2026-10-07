@@ -14,7 +14,6 @@ let logRows = [];
 let filter = 'all', statusF = 'all';
 let showSkipped = false;
 let editing = null;          // {id} or {group}: what the edit sheet is working on
-const chains = new Map();    // one write at a time per doc
 let pending = 0;             // writes in flight, for the sync pill
 const live = () => items.filter(i => !i.disabled);
 
@@ -1392,12 +1391,14 @@ function q(s) { return '“' + (s || 'Untitled') + '”'; }
 
 /* ---------- Writes ---------- */
 function stamp() { return { updatedAt: Date.now(), updatedBy: uid || null }; }
-function chain(id, fn) {
-  const prev = chains.get(id) || Promise.resolve();
+/* Count writes in flight for the sync pill. Order is the shim's job: it sends every edit one at a time, in order.
+   fn runs NOW: the shim applies the edit to its copy synchronously, so the next snapshot (any other write fires every
+   listener, and the items listener rebuilds the list from the shim's copy) already contains it. Deferring it even one
+   microtask made a just-added to-do vanish whenever a log line was written in between. */
+function track(fn) {
   pending++; syncPill();
-  const next = prev.catch(() => {}).then(fn).finally(() => { pending--; syncPill(); });
-  chains.set(id, next);
-  return next;
+  let p; try { p = Promise.resolve(fn()); } catch (e) { p = Promise.reject(e); }
+  return p.finally(() => { pending--; syncPill(); });
 }
 function handleErr(e) {
   const code = e && e.code;
@@ -1410,20 +1411,20 @@ function handleErr(e) {
 function write(id, patch, logText) {
   if (!db || !canWrite) return;
   const it = items.find(x => x.id === id); if (it) Object.assign(it, patch); render();
-  chain(id, () => db.collection('items').doc(id).update(Object.assign({}, patch, stamp())))
+  track(() => db.collection('items').doc(id).update(Object.assign({}, patch, stamp())))
     .then(() => { if (logText) addLog(logText); }).catch(handleErr);   // no logText: the caller logs one line for a batch
 }
 function create(data, logText) {
   if (!db || !canWrite) return;
   const ref = db.collection('items').doc();
   items.push(Object.assign({ id: ref.id }, data)); render();
-  chain(ref.id, () => ref.set(Object.assign({}, data, stamp()))).then(() => { if (logText) addLog(logText); }).catch(handleErr);
+  track(() => ref.set(Object.assign({}, data, stamp()))).then(() => { if (logText) addLog(logText); }).catch(handleErr);
   return ref.id;
 }
 function remove(id, logText) {
   if (!db || !canWrite) return;
   items = items.filter(x => x.id !== id); render();
-  chain(id, () => db.collection('items').doc(id).delete()).then(() => { if (logText) addLog(logText); }).catch(handleErr);
+  track(() => db.collection('items').doc(id).delete()).then(() => { if (logText) addLog(logText); }).catch(handleErr);
 }
 function addLog(text) {
   if (!db) return Promise.resolve();
